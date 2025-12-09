@@ -72,6 +72,7 @@ export function ModelSettingsModal({
   const [hasAutoFetched, setHasAutoFetched] = useState<boolean>(false);
   const hasSyncedFromParent = useRef<boolean>(false);
   const hasLoadedInitialConfig = useRef<boolean>(false);
+  const hasLoadedEnvDefaults = useRef<boolean>(false);
   const [autoGenerateEnabled, setAutoGenerateEnabled] = useState<boolean>(true); // Default to true
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isEndpointSectionCollapsed, setIsEndpointSectionCollapsed] = useState<boolean>(true); // Collapsed by default
@@ -216,6 +217,44 @@ export function ModelSettingsModal({
 
     fetchModelConfig();
   }, [skipInitialFetch]);
+
+  // Load default values from .env if no config is saved
+  useEffect(() => {
+    const loadEnvDefaults = async () => {
+      // Only load env defaults if:
+      // 1. We haven't loaded them yet
+      // 2. The ollamaEndpoint is empty (no user config)
+      // 3. We're using Ollama provider
+      if (hasLoadedEnvDefaults.current) return;
+      if (ollamaEndpoint) return; // User already has a config
+      
+      try {
+        const envDefaults = await invoke('get_env_defaults') as {
+          ollama_url: string | null;
+          whisper_url: string | null;
+          backend_url: string | null;
+        };
+        
+        if (envDefaults.ollama_url && !ollamaEndpoint) {
+          console.log('Loading Ollama endpoint from .env:', envDefaults.ollama_url);
+          setOllamaEndpoint(envDefaults.ollama_url);
+          // Also update the parent config if we're on Ollama provider
+          if (modelConfig.provider === 'ollama') {
+            setModelConfig((prev: ModelConfig) => ({
+              ...prev,
+              ollamaEndpoint: envDefaults.ollama_url
+            }));
+          }
+        }
+        hasLoadedEnvDefaults.current = true;
+      } catch (err) {
+        console.error('Failed to load env defaults:', err);
+        hasLoadedEnvDefaults.current = true;
+      }
+    };
+    
+    loadEnvDefaults();
+  }, [modelConfig.provider, ollamaEndpoint]);
 
   // Fetch auto-generate setting on mount
   useEffect(() => {

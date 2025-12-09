@@ -105,6 +105,8 @@ pub struct TranscriptConfig {
     pub model: String,
     #[serde(rename = "apiKey")]
     pub api_key: Option<String>,
+    #[serde(rename = "remoteUrl")]
+    pub remote_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -113,6 +115,8 @@ pub struct SaveTranscriptConfigRequest {
     pub model: String,
     #[serde(rename = "apiKey")]
     pub api_key: Option<String>,
+    #[serde(rename = "remoteUrl")]
+    pub remote_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -470,12 +474,15 @@ pub async fn api_get_model_config<R: Runtime>(
             match SettingsRepository::get_api_key(pool, &config.provider).await {
                 Ok(api_key) => {
                     log_info!("Successfully retrieved model config and API key.");
+                    // Use MEETILY_OLLAMA_URL from .env as fallback for ollama endpoint
+                    let ollama_endpoint = config.ollama_endpoint
+                        .or_else(|| std::env::var("MEETILY_OLLAMA_URL").ok());
                     Ok(Some(ModelConfig {
                         provider: config.provider,
                         model: config.model,
                         whisper_model: config.whisper_model,
                         api_key,
-                        ollama_endpoint: config.ollama_endpoint,
+                        ollama_endpoint,
                     }))
                 }
                 Err(e) => {
@@ -489,8 +496,16 @@ pub async fn api_get_model_config<R: Runtime>(
             }
         }
         Ok(None) => {
-            log_warn!("⚠️ No model config found in database - database may be empty or settings table not initialized");
-            Ok(None)
+            log_warn!("⚠️ No model config found in database - using env defaults");
+            // Use MEETILY_OLLAMA_URL from .env as default
+            let ollama_endpoint = std::env::var("MEETILY_OLLAMA_URL").ok();
+            Ok(Some(ModelConfig {
+                provider: "ollama".to_string(),
+                model: "llama3.2:latest".to_string(),
+                whisper_model: "large-v3".to_string(),
+                api_key: None,
+                ollama_endpoint,
+            }))
         }
         Err(e) => {
             log_error!("❌ Failed to get model config from database: {}", e);
@@ -593,10 +608,22 @@ pub async fn api_get_transcript_config<R: Runtime>(
             match SettingsRepository::get_transcript_api_key(pool, &config.provider).await {
                 Ok(api_key) => {
                     log_info!("Successfully retrieved transcript config and API key.");
+                    // For remoteWhisper, the api_key field stores the server URL
+                    // Use MEETILY_WHISPER_URL from .env as fallback
+                    // Always include remote_url so the UI can pre-fill it
+                    let default_whisper_url = std::env::var("MEETILY_WHISPER_URL").ok();
+                    let (final_api_key, remote_url) = if config.provider == "remoteWhisper" {
+                        let url = api_key.or(default_whisper_url);
+                        (None, url)
+                    } else {
+                        // Still provide the default URL for when user switches to remoteWhisper
+                        (api_key, default_whisper_url)
+                    };
                     Ok(Some(TranscriptConfig {
                         provider: config.provider,
                         model: config.model,
-                        api_key,
+                        api_key: final_api_key,
+                        remote_url,
                     }))
                 }
                 Err(e) => {
@@ -610,11 +637,14 @@ pub async fn api_get_transcript_config<R: Runtime>(
             }
         }
         Ok(None) => {
-            log_info!("No transcript config found, returning default.");
+            log_info!("No transcript config found, returning default with env fallback.");
+            // Use MEETILY_WHISPER_URL from .env as default for remote URL
+            let default_whisper_url = std::env::var("MEETILY_WHISPER_URL").ok();
             Ok(Some(TranscriptConfig {
                 provider: "localWhisper".to_string(),
                 model: "large-v3".to_string(),
                 api_key: None,
+                remote_url: default_whisper_url,
             }))
         }
         Err(e) => {
@@ -631,6 +661,7 @@ pub async fn api_save_transcript_config<R: Runtime>(
     provider: String,
     model: String,
     api_key: Option<String>,
+    remote_url: Option<String>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
@@ -644,9 +675,16 @@ pub async fn api_save_transcript_config<R: Runtime>(
         return Err(e.to_string());
     }
 
-    if let Some(key) = api_key {
+    // For remoteWhisper, save the URL in the api_key field
+    let key_to_save = if provider == "remoteWhisper" {
+        remote_url
+    } else {
+        api_key
+    };
+
+    if let Some(key) = key_to_save {
         if !key.is_empty() {
-            log_info!("API key provided, saving for transcript provider...");
+            log_info!("Saving key/URL for transcript provider...");
             if let Err(e) = SettingsRepository::save_transcript_api_key(pool, &provider, &key).await
             {
                 log_error!("Failed to save transcript API key: {}", e);

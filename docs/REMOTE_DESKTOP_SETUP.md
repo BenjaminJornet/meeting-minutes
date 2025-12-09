@@ -6,25 +6,25 @@ This guide explains how to run Meetily with the **backend services on a remote s
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     YOUR LOCAL MACHINE (Mac)                     │
-│                                                                  │
+│                     YOUR LOCAL MACHINE (Mac)                    │
+│                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │              Meetily Tauri Desktop App                    │   │
-│  │  • Captures microphone audio locally                      │   │
+│  │              Meetily Tauri Desktop App                   │   │
+│  │  • Captures microphone audio locally                     │   │
 │  │  • Runs Whisper/Parakeet locally (CoreML/Metal)          │   │
-│  │  • Sends transcripts to remote backend                    │   │
+│  │  • Sends transcripts to remote backend                   │   │
 │  └──────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│                              │ Tailscale VPN                     │
-│                              ▼                                   │
+│                              │                                  │
+│                              │ Tailscale VPN                    │
+│                              ▼                                  │
 └─────────────────────────────────────────────────────────────────┘
                                │
                                │ Network (Tailscale: 100.64.x.x)
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│               REMOTE SERVER (Windows + GPU)                      │
-│                                                                  │
+│               REMOTE SERVER (Windows + GPU)                     │
+│                                                                 │
 │  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────┐  │
 │  │  meetily-backend │  │  whisper-server  │  │    Ollama     │  │
 │  │   (FastAPI)      │  │     (GPU)        │  │   (GPU LLM)   │  │
@@ -32,8 +32,8 @@ This guide explains how to run Meetily with the **backend services on a remote s
 │  └──────────────────┘  └──────────────────┘  └───────────────┘  │
 │           │                                          │          │
 │           └──────────────┬───────────────────────────┘          │
-│                          │                                       │
-│               Docker Network: meeting-minutes                    │
+│                          │                                      │
+│               Docker Network: meeting-minutes                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -47,10 +47,14 @@ This guide explains how to run Meetily with the **backend services on a remote s
 
 ### On Your Local Machine (Mac)
 - macOS 12+ (for CoreML/Metal acceleration)
+- **Xcode** (full version from App Store, not just Command Line Tools) - required for CoreML/Metal build
 - Rust toolchain installed (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
-- Node.js 18+ and pnpm (`npm install -g pnpm`)
-- Xcode Command Line Tools (`xcode-select --install`)
+- Node.js 18+ via nvm (`nvm install 20 && nvm use 20`)
+- pnpm (`brew install pnpm`)
+- CMake (`brew install cmake`)
 - Tailscale installed and connected to the same network
+
+> ⚠️ **Important**: After installing Xcode, run: `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`
 
 ## 🖥️ Step 1: Setup Remote Server (Windows)
 
@@ -116,6 +120,7 @@ git clone https://github.com/Zackriya-Solutions/meeting-minutes.git
 cd meeting-minutes/frontend
 
 # Install dependencies
+nvm use 20.15.1
 pnpm install
 ```
 
@@ -197,15 +202,25 @@ After launching Meetily:
 
 Transcription runs **locally** on your Mac using Whisper or Parakeet. Ensure:
 
-1. You've downloaded a transcription model in Settings
+1. You've downloaded a transcription model in Settings → Transcription
 2. Your Mac has sufficient RAM (8GB+ recommended)
 3. For best performance on Mac, use Parakeet (optimized for Apple Silicon)
+
+**Why local transcription is recommended:**
+- Apple Silicon (M1/M2/M3) provides excellent performance via Metal/CoreML
+- No network latency - instant real-time transcription
+- Privacy: audio never leaves your machine
+- Works offline
+
+> 💡 **Tip**: If you have a `large-v3` Whisper model on your remote server but want to use it,
+> the best approach is to download the same model locally. Mac M-series chips handle
+> transcription extremely well, and you avoid network latency.
 
 ### App won't build on Mac
 
 ```bash
-# Ensure Xcode tools are installed
-xcode-select --install
+# Ensure Xcode is properly configured (not just Command Line Tools)
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
 # Ensure Rust is up to date
 rustup update
@@ -213,6 +228,7 @@ rustup update
 # Clean and rebuild
 cd frontend
 rm -rf node_modules src-tauri/target
+nvm use 20.15.1
 pnpm install
 pnpm run tauri:build
 ```
@@ -220,8 +236,9 @@ pnpm run tauri:build
 ## 📊 Performance Tips
 
 1. **Use Parakeet on Mac** - It's optimized for Apple Silicon and provides excellent real-time transcription
-2. **Use Ollama on your GPU server** - Heavy LLM inference for summaries benefits from your RTX 4090
-3. **Keep backend close to data** - Your meeting database stays on the server for centralized storage
+2. **Use Whisper locally** - Apple Silicon makes local transcription fast, even with `large-v3` model
+3. **Use Ollama on your GPU server** - Heavy LLM inference for summaries benefits from your RTX 4090
+4. **Keep backend close to data** - Your meeting database stays on the server for centralized storage
 
 ## 🔒 Security Notes
 

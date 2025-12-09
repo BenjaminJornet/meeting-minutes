@@ -123,6 +123,126 @@ pub async fn api_validate_template<R: Runtime>(
     }
 }
 
+/// Get the directory path for custom templates
+fn get_custom_templates_dir() -> Result<std::path::PathBuf, String> {
+    let mut path = dirs::data_dir()
+        .ok_or_else(|| "Could not find data directory".to_string())?;
+    path.push("Meetily");
+    path.push("templates");
+    Ok(path)
+}
+
+/// Saves a custom template to the user's templates directory
+///
+/// # Arguments
+/// * `template_id` - Template identifier (will be filename without .json)
+/// * `template_json` - Full template JSON content
+///
+/// # Returns
+/// Ok(template_name) if saved successfully
+#[tauri::command]
+pub async fn api_save_custom_template<R: Runtime>(
+    _app: tauri::AppHandle<R>,
+    template_id: String,
+    template_json: String,
+) -> Result<String, String> {
+    info!("api_save_custom_template called for template_id: {}", template_id);
+
+    // Validate template first
+    let template = templates::validate_and_parse_template(&template_json)?;
+
+    // Ensure custom templates directory exists
+    let custom_dir = get_custom_templates_dir()?;
+    std::fs::create_dir_all(&custom_dir)
+        .map_err(|e| format!("Failed to create templates directory: {}", e))?;
+
+    // Save template file
+    let template_path = custom_dir.join(format!("{}.json", template_id));
+    std::fs::write(&template_path, &template_json)
+        .map_err(|e| format!("Failed to save template: {}", e))?;
+
+    info!("Saved custom template '{}' to {:?}", template.name, template_path);
+    Ok(template.name)
+}
+
+/// Deletes a custom template from the user's templates directory
+///
+/// # Arguments
+/// * `template_id` - Template identifier to delete
+///
+/// # Returns
+/// Ok(()) if deleted successfully, Err if not found or built-in template
+#[tauri::command]
+pub async fn api_delete_custom_template<R: Runtime>(
+    _app: tauri::AppHandle<R>,
+    template_id: String,
+) -> Result<(), String> {
+    info!("api_delete_custom_template called for template_id: {}", template_id);
+
+    let custom_dir = get_custom_templates_dir()?;
+    let template_path = custom_dir.join(format!("{}.json", template_id));
+
+    if !template_path.exists() {
+        return Err(format!("Custom template '{}' not found. Built-in templates cannot be deleted.", template_id));
+    }
+
+    std::fs::remove_file(&template_path)
+        .map_err(|e| format!("Failed to delete template: {}", e))?;
+
+    info!("Deleted custom template '{}'", template_id);
+    Ok(())
+}
+
+/// Gets the raw JSON content of a template for editing
+///
+/// # Arguments
+/// * `template_id` - Template identifier
+///
+/// # Returns
+/// The raw JSON content of the template
+#[tauri::command]
+pub async fn api_get_template_json<R: Runtime>(
+    _app: tauri::AppHandle<R>,
+    template_id: String,
+) -> Result<String, String> {
+    info!("api_get_template_json called for template_id: {}", template_id);
+
+    // Try custom template first
+    let custom_dir = get_custom_templates_dir()?;
+    let custom_path = custom_dir.join(format!("{}.json", template_id));
+    
+    if custom_path.exists() {
+        let content = std::fs::read_to_string(&custom_path)
+            .map_err(|e| format!("Failed to read template: {}", e))?;
+        return Ok(content);
+    }
+
+    // Try bundled/built-in templates
+    let template = templates::get_template(&template_id)?;
+    let json = serde_json::to_string_pretty(&template)
+        .map_err(|e| format!("Failed to serialize template: {}", e))?;
+    
+    Ok(json)
+}
+
+/// Gets the custom templates directory path
+#[tauri::command]
+pub fn api_get_templates_directory() -> Result<String, String> {
+    let dir = get_custom_templates_dir()?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
+/// Checks if a template is a custom (user) template or built-in
+#[tauri::command]
+pub async fn api_is_custom_template<R: Runtime>(
+    _app: tauri::AppHandle<R>,
+    template_id: String,
+) -> Result<bool, String> {
+    let custom_dir = get_custom_templates_dir()?;
+    let custom_path = custom_dir.join(format!("{}.json", template_id));
+    Ok(custom_path.exists())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

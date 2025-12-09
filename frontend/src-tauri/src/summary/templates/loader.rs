@@ -8,6 +8,12 @@ use std::sync::RwLock;
 // Global storage for the bundled templates directory path
 static BUNDLED_TEMPLATES_DIR: Lazy<RwLock<Option<PathBuf>>> = Lazy::new(|| RwLock::new(None));
 
+/// Get the configured language from environment variable MEETILY_LANGUAGE
+/// Defaults to "en" if not set
+fn get_language() -> String {
+    std::env::var("MEETILY_LANGUAGE").unwrap_or_else(|_| "en".to_string())
+}
+
 /// Set the bundled templates directory path (called once at app startup)
 pub fn set_bundled_templates_dir(path: PathBuf) {
     info!("Bundled templates directory set to: {:?}", path);
@@ -31,6 +37,10 @@ fn get_custom_templates_dir() -> Option<PathBuf> {
 
 /// Load a template from the bundled resources directory
 ///
+/// This function implements language-aware loading:
+/// 1. First tries to load from language-specific subdirectory (e.g., templates/fr/)
+/// 2. Falls back to root templates directory
+///
 /// # Arguments
 /// * `template_id` - Template identifier (without .json extension)
 ///
@@ -38,8 +48,19 @@ fn get_custom_templates_dir() -> Option<PathBuf> {
 /// The template JSON content if found, None otherwise
 fn load_bundled_template(template_id: &str) -> Option<String> {
     let bundled_dir = BUNDLED_TEMPLATES_DIR.read().ok()?.clone()?;
+    let language = get_language();
+    
+    // First try language-specific path (e.g., templates/fr/daily_standup.json)
+    let lang_template_path = bundled_dir.join(&language).join(format!("{}.json", template_id));
+    debug!("Checking for bundled template at language path: {:?}", lang_template_path);
+    
+    if let Ok(content) = std::fs::read_to_string(&lang_template_path) {
+        info!("Loaded bundled template '{}' ({}) from {:?}", template_id, language, lang_template_path);
+        return Some(content);
+    }
+    
+    // Fall back to root templates directory
     let template_path = bundled_dir.join(format!("{}.json", template_id));
-
     debug!("Checking for bundled template at: {:?}", template_path);
 
     match std::fs::read_to_string(&template_path) {
@@ -56,6 +77,10 @@ fn load_bundled_template(template_id: &str) -> Option<String> {
 
 /// Load a template from the user's custom templates directory
 ///
+/// This function implements language-aware loading:
+/// 1. First tries to load from language-specific subdirectory (e.g., custom/fr/)
+/// 2. Falls back to root custom templates directory
+///
 /// # Arguments
 /// * `template_id` - Template identifier (without .json extension)
 ///
@@ -63,8 +88,19 @@ fn load_bundled_template(template_id: &str) -> Option<String> {
 /// The template JSON content if found, None otherwise
 fn load_custom_template(template_id: &str) -> Option<String> {
     let custom_dir = get_custom_templates_dir()?;
+    let language = get_language();
+    
+    // First try language-specific path (e.g., custom/fr/daily_standup.json)
+    let lang_template_path = custom_dir.join(&language).join(format!("{}.json", template_id));
+    debug!("Checking for custom template at language path: {:?}", lang_template_path);
+    
+    if let Ok(content) = std::fs::read_to_string(&lang_template_path) {
+        info!("Loaded custom template '{}' ({}) from {:?}", template_id, language, lang_template_path);
+        return Some(content);
+    }
+    
+    // Fall back to root custom templates directory
     let template_path = custom_dir.join(format!("{}.json", template_id));
-
     debug!("Checking for custom template at: {:?}", template_path);
 
     match std::fs::read_to_string(&template_path) {
@@ -133,64 +169,65 @@ pub fn validate_and_parse_template(json_content: &str) -> Result<Template, Strin
     Ok(template)
 }
 
+/// Helper function to collect template IDs from a directory
+fn collect_template_ids_from_dir(dir: &PathBuf, ids: &mut Vec<String>) {
+    if !dir.exists() {
+        return;
+    }
+    
+    match std::fs::read_dir(dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                if let Some(filename) = entry.file_name().to_str() {
+                    if filename.ends_with(".json") {
+                        let id = filename.trim_end_matches(".json").to_string();
+                        if !ids.contains(&id) {
+                            ids.push(id);
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            debug!("Failed to read templates directory {:?}: {}", dir, e);
+        }
+    }
+}
+
 /// List all available template identifiers
 ///
 /// Returns a combined list of:
 /// - Built-in template IDs
-/// - Bundled template IDs (from app resources)
-/// - Custom template IDs (from user's data directory)
+/// - Bundled template IDs (from app resources, language-specific first)
+/// - Custom template IDs (from user's data directory, language-specific first)
 pub fn list_template_ids() -> Vec<String> {
     let mut ids: Vec<String> = defaults::list_builtin_template_ids()
         .into_iter()
         .map(|s| s.to_string())
         .collect();
+    
+    let language = get_language();
 
     // Add bundled templates if directory is set
     if let Ok(bundled_dir_lock) = BUNDLED_TEMPLATES_DIR.read() {
         if let Some(bundled_dir) = bundled_dir_lock.as_ref() {
-            if bundled_dir.exists() {
-                match std::fs::read_dir(bundled_dir) {
-                    Ok(entries) => {
-                        for entry in entries.flatten() {
-                            if let Some(filename) = entry.file_name().to_str() {
-                                if filename.ends_with(".json") {
-                                    let id = filename.trim_end_matches(".json").to_string();
-                                    if !ids.contains(&id) {
-                                        ids.push(id);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Failed to read bundled templates directory: {}", e);
-                    }
-                }
-            }
+            // First check language-specific directory
+            let lang_dir = bundled_dir.join(&language);
+            collect_template_ids_from_dir(&lang_dir, &mut ids);
+            
+            // Then check root directory
+            collect_template_ids_from_dir(bundled_dir, &mut ids);
         }
     }
 
     // Add custom templates if directory exists
     if let Some(custom_dir) = get_custom_templates_dir() {
-        if custom_dir.exists() {
-            match std::fs::read_dir(&custom_dir) {
-                Ok(entries) => {
-                    for entry in entries.flatten() {
-                        if let Some(filename) = entry.file_name().to_str() {
-                            if filename.ends_with(".json") {
-                                let id = filename.trim_end_matches(".json").to_string();
-                                if !ids.contains(&id) {
-                                    ids.push(id);
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("Failed to read custom templates directory: {}", e);
-                }
-            }
-        }
+        // First check language-specific directory
+        let lang_dir = custom_dir.join(&language);
+        collect_template_ids_from_dir(&lang_dir, &mut ids);
+        
+        // Then check root directory
+        collect_template_ids_from_dir(&custom_dir, &mut ids);
     }
 
     ids.sort();

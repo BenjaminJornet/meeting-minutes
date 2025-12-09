@@ -3,9 +3,13 @@
 // TranscriptionEngine enum and model initialization/validation logic.
 
 use super::provider::TranscriptionProvider;
-use log::{info, warn};
+use super::remote_whisper_provider::RemoteWhisperProvider;
+use log::{error, info, warn};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, Runtime};
+
+// Global Remote Whisper provider instance
+static REMOTE_WHISPER_PROVIDER: std::sync::Mutex<Option<Arc<RemoteWhisperProvider>>> = std::sync::Mutex::new(None);
 
 // ============================================================================
 // TRANSCRIPTION ENGINE ENUM
@@ -13,9 +17,10 @@ use tauri::{AppHandle, Manager, Runtime};
 
 // Transcription engine abstraction to support multiple providers
 pub enum TranscriptionEngine {
-    Whisper(Arc<crate::whisper_engine::WhisperEngine>),  // Direct access (backward compat)
-    Parakeet(Arc<crate::parakeet_engine::ParakeetEngine>), // Direct access (backward compat)
-    Provider(Arc<dyn TranscriptionProvider>),  // Trait-based (preferred for new code)
+    Whisper(Arc<crate::whisper_engine::WhisperEngine>),  // Local whisper
+    Parakeet(Arc<crate::parakeet_engine::ParakeetEngine>), // Local parakeet
+    RemoteWhisper(Arc<RemoteWhisperProvider>),  // Remote whisper.cpp server
+    Provider(Arc<dyn TranscriptionProvider>),  // Trait-based (for extensibility)
 }
 
 impl TranscriptionEngine {
@@ -24,6 +29,7 @@ impl TranscriptionEngine {
         match self {
             Self::Whisper(engine) => engine.is_model_loaded().await,
             Self::Parakeet(engine) => engine.is_model_loaded().await,
+            Self::RemoteWhisper(provider) => provider.is_model_loaded().await,
             Self::Provider(provider) => provider.is_model_loaded().await,
         }
     }
@@ -33,6 +39,7 @@ impl TranscriptionEngine {
         match self {
             Self::Whisper(engine) => engine.get_current_model().await,
             Self::Parakeet(engine) => engine.get_current_model().await,
+            Self::RemoteWhisper(provider) => provider.get_current_model().await,
             Self::Provider(provider) => provider.get_current_model().await,
         }
     }
@@ -40,8 +47,9 @@ impl TranscriptionEngine {
     /// Get the provider name for logging
     pub fn provider_name(&self) -> &str {
         match self {
-            Self::Whisper(_) => "Whisper (direct)",
-            Self::Parakeet(_) => "Parakeet (direct)",
+            Self::Whisper(_) => "Local Whisper",
+            Self::Parakeet(_) => "Parakeet",
+            Self::RemoteWhisper(_) => "Remote Whisper",
             Self::Provider(provider) => provider.provider_name(),
         }
     }
@@ -74,6 +82,7 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
                 provider: "localWhisper".to_string(),
                 model: "large-v3".to_string(),
                 api_key: None,
+                remote_url: None,
             }
         }
         Err(e) => {
@@ -82,6 +91,7 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
                 provider: "localWhisper".to_string(),
                 model: "large-v3".to_string(),
                 api_key: None,
+                remote_url: None,
             }
         }
     };
@@ -135,10 +145,58 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
                 }
             }
         }
+        "remoteWhisper" => {
+            info!("🌐 Validating Remote Whisper server...");
+            
+            // Get URL from remote_url field or environment
+            let server_url = config.remote_url
+                .filter(|s| !s.is_empty())
+                .or_else(|| config.api_key.filter(|s| s.starts_with("http")))
+                .unwrap_or_else(|| {
+                    std::env::var("MEETILY_WHISPER_URL")
+                        .unwrap_or_else(|_| "http://localhost:8178".to_string())
+                });
+            
+            info!("🌐 Remote Whisper URL: {}", server_url);
+            
+            // Initialize or get the remote whisper provider
+            let provider = {
+                let mut guard = REMOTE_WHISPER_PROVIDER.lock().unwrap();
+                if guard.is_none() {
+                    *guard = Some(Arc::new(RemoteWhisperProvider::new(server_url.clone())));
+                }
+                guard.as_ref().cloned().unwrap()
+            };
+            
+            // Update URL
+            provider.set_server_url(server_url.clone()).await;
+            
+            // Check if server is reachable
+            match provider.check_server_health().await {
+                Ok(true) => {
+                    info!("✅ Remote Whisper server connected at {}", server_url);
+                    Ok(())
+                }
+                Ok(false) => {
+                    error!("❌ Remote Whisper server not responding at {}", server_url);
+                    Err(format!(
+                        "Remote Whisper server at {} is not responding. Please check the server is running.",
+                        server_url
+                    ))
+                }
+                Err(e) => {
+                    error!("❌ Cannot connect to Remote Whisper at {}: {}", server_url, e);
+                    Err(format!(
+                        "Cannot connect to Remote Whisper at {}: {}",
+                        server_url, e
+                    ))
+                }
+            }
+        }
         other => {
-            warn!("❌ Unsupported transcription provider for local recording: {}", other);
+            warn!("❌ Unsupported transcription provider: {}", other);
             Err(format!(
-                "Provider '{}' is not supported for local transcription. Please select 'localWhisper' or 'parakeet'.",
+                "Provider '{}' is not supported. Please select 'localWhisper', 'remoteWhisper', or 'parakeet'.",
                 other
             ))
         }
@@ -170,6 +228,7 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
                 provider: "localWhisper".to_string(),
                 model: "large-v3".to_string(),
                 api_key: None,
+                remote_url: None,
             }
         }
         Err(e) => {
@@ -178,6 +237,7 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
                 provider: "localWhisper".to_string(),
                 model: "large-v3".to_string(),
                 api_key: None,
+                remote_url: None,
             }
         }
     };
@@ -212,8 +272,35 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
                 }
             }
         }
+        "remoteWhisper" => {
+            info!("🌐 Initializing Remote Whisper transcription engine");
+            
+            // Get URL from remote_url field or environment
+            let server_url = config.remote_url
+                .filter(|s| !s.is_empty())
+                .or_else(|| config.api_key.filter(|s| s.starts_with("http")))
+                .unwrap_or_else(|| {
+                    std::env::var("MEETILY_WHISPER_URL")
+                        .unwrap_or_else(|_| "http://localhost:8178".to_string())
+                });
+            
+            // Get or create the remote whisper provider
+            let provider = {
+                let mut guard = REMOTE_WHISPER_PROVIDER.lock().unwrap();
+                if guard.is_none() {
+                    *guard = Some(Arc::new(RemoteWhisperProvider::new(server_url.clone())));
+                }
+                guard.as_ref().cloned().unwrap()
+            };
+            
+            // Update URL
+            provider.set_server_url(server_url.clone()).await;
+            
+            info!("✅ Remote Whisper provider ready for {}", server_url);
+            Ok(TranscriptionEngine::RemoteWhisper(provider))
+        }
         "localWhisper" | _ => {
-            info!("🎤 Initializing Whisper transcription engine");
+            info!("🎤 Initializing Local Whisper transcription engine");
             let whisper_engine = get_or_init_whisper(app).await?;
             Ok(TranscriptionEngine::Whisper(whisper_engine))
         }

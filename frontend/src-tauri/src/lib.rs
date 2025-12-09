@@ -381,6 +381,86 @@ async fn set_language_preference(language: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Check if a remote whisper server is reachable
+#[tauri::command]
+async fn check_remote_whisper_status(url: String) -> Result<bool, String> {
+    log_info!("Checking remote whisper server at: {}", url);
+    
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    match client.get(&url).send().await {
+        Ok(response) => {
+            let is_ok = response.status().is_success();
+            log_info!("Remote whisper server status: {} ({})", if is_ok { "OK" } else { "Error" }, response.status());
+            Ok(is_ok)
+        }
+        Err(e) => {
+            log_error!("Failed to connect to remote whisper server: {}", e);
+            Ok(false)
+        }
+    }
+}
+
+/// Environment configuration defaults from .env file
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EnvDefaults {
+    pub ollama_url: Option<String>,
+    pub whisper_url: Option<String>,
+    pub backend_url: Option<String>,
+    pub language: Option<String>,
+}
+
+/// Get default configuration values from environment variables (.env file)
+#[tauri::command]
+fn get_env_defaults() -> EnvDefaults {
+    EnvDefaults {
+        ollama_url: std::env::var("MEETILY_OLLAMA_URL").ok(),
+        whisper_url: std::env::var("MEETILY_WHISPER_URL").ok(),
+        backend_url: std::env::var("MEETILY_BACKEND_URL").ok(),
+        language: std::env::var("MEETILY_LANGUAGE").ok(),
+    }
+}
+
+/// Information about a model available on the remote whisper server
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RemoteWhisperModelInfo {
+    pub model_name: String,
+    pub is_loaded: bool,
+}
+
+/// Get information about the remote whisper server (currently loaded model, server version, etc.)
+#[tauri::command]
+async fn get_remote_whisper_info(url: String) -> Result<RemoteWhisperModelInfo, String> {
+    log_info!("Getting remote whisper server info at: {}", url);
+    
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    
+    // Try to get server info - whisper.cpp server returns model info in the main page
+    match client.get(&url).send().await {
+        Ok(response) => {
+            if response.status().is_success() {
+                // The server is running, we know there's a model loaded
+                // whisper.cpp server doesn't expose which model, but we can assume it's working
+                Ok(RemoteWhisperModelInfo {
+                    model_name: "loaded".to_string(), // Server has a model loaded
+                    is_loaded: true,
+                })
+            } else {
+                Err(format!("Server returned error: {}", response.status()))
+            }
+        }
+        Err(e) => {
+            Err(format!("Failed to connect: {}", e))
+        }
+    }
+}
+
 // Internal helper function to get language preference (for use within Rust code)
 pub fn get_language_preference_internal() -> Option<String> {
     LANGUAGE_PREFERENCE.lock().ok().map(|lang| lang.clone())
@@ -487,6 +567,9 @@ pub fn run() {
             get_transcription_status,
             read_audio_file,
             save_transcript,
+            check_remote_whisper_status,
+            get_env_defaults,
+            get_remote_whisper_info,
             analytics::commands::init_analytics,
             analytics::commands::disable_analytics,
             analytics::commands::track_event,
@@ -607,6 +690,11 @@ pub fn run() {
             summary::api_list_templates,
             summary::api_get_template_details,
             summary::api_validate_template,
+            summary::api_save_custom_template,
+            summary::api_delete_custom_template,
+            summary::api_get_template_json,
+            summary::api_get_templates_directory,
+            summary::api_is_custom_template,
             openrouter::get_openrouter_models,
             audio::recording_preferences::get_recording_preferences,
             audio::recording_preferences::set_recording_preferences,
@@ -617,6 +705,9 @@ pub fn run() {
             audio::recording_preferences::get_current_audio_backend,
             audio::recording_preferences::set_audio_backend,
             audio::recording_preferences::get_audio_backend_info,
+            // Re-transcription commands (for post-recording high-quality transcription)
+            audio::transcription::retranscribe_commands::retranscribe_audio_file,
+            audio::transcription::retranscribe_commands::list_recordings_for_retranscription,
             // Language preference commands
             get_language_preference,
             set_language_preference,

@@ -5,13 +5,16 @@
 pub mod provider;
 pub mod whisper_provider;
 pub mod parakeet_provider;
+pub mod remote_whisper_provider;
 pub mod engine;
 pub mod worker;
+pub mod retranscribe_commands;
 
 // Re-export commonly used types
 pub use provider::{TranscriptionError, TranscriptionProvider, TranscriptResult};
 pub use whisper_provider::WhisperProvider;
 pub use parakeet_provider::ParakeetProvider;
+pub use remote_whisper_provider::RemoteWhisperProvider;
 pub use engine::{
     TranscriptionEngine,
     validate_transcription_model_ready,
@@ -22,4 +25,10 @@ pub use worker::{
     start_transcription_task,
     reset_speech_detected_flag,
     TranscriptUpdate
+};
+pub use retranscribe_commands::{
+    retranscribe_audio_file,
+    list_recordings_for_retranscription,
+    RetranscribeResult,
+    RecordingInfo,
 };

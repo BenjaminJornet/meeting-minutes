@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { ModelConfig, ModelSettingsModal } from '@/components/ModelSettingsModal';
+import { TemplateEditor } from '@/components/TemplateEditor';
 
 interface SummaryModelSettingsProps {
   refetchTrigger?: number; // Change this to trigger refetch
@@ -99,17 +100,23 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
   };
 
   return (
-    <div>
-      <h3 className="text-lg font-semibold mb-4">Summary Model Configuration</h3>
-      <p className="text-sm text-gray-600 mb-6">
-        Configure the AI model used for generating meeting summaries.
-      </p>
-      <ModelSettingsModal
-        modelConfig={modelConfig}
-        setModelConfig={setModelConfig}
-        onSave={handleSaveModelConfig}
-        skipInitialFetch={true}
-      />
+    <div className="space-y-8">
+      <div>
+        <h3 className="text-lg font-semibold mb-4">Summary Model Configuration</h3>
+        <p className="text-sm text-gray-600 mb-6">
+          Configure the AI model used for generating meeting summaries.
+        </p>
+        <ModelSettingsModal
+          modelConfig={modelConfig}
+          setModelConfig={setModelConfig}
+          onSave={handleSaveModelConfig}
+          skipInitialFetch={true}
+        />
+      </div>
+
+      <div className="border-t pt-8">
+        <TemplateEditor />
+      </div>
     </div>
   );
 }
