@@ -614,6 +614,49 @@ export default function Home() {
     };
   }, [router]);
 
+  // Set up retranscribe-progress listener for auto re-transcription status
+  useEffect(() => {
+    let unlistenFn: (() => void) | undefined;
+
+    const setupRetranscribeProgressListener = async () => {
+      try {
+        console.log('Setting up retranscribe-progress listener...');
+        unlistenFn = await listen<{
+          status: string;
+          message: string;
+          transcript?: string;
+          processing_time_secs?: number;
+          folder_path?: string;
+        }>('retranscribe-progress', (event) => {
+          console.log('🔄 Retranscribe progress:', event.payload);
+          const { status, message } = event.payload;
+
+          if (status === 'starting') {
+            // Show a toast or notification that re-transcription is starting
+            console.log('🔄 Auto re-transcription starting:', message);
+          } else if (status === 'complete') {
+            console.log('✅ Auto re-transcription complete:', message);
+            // Optionally show a success toast
+          } else if (status === 'error') {
+            console.warn('⚠️ Auto re-transcription failed:', message);
+          }
+        });
+        console.log('Retranscribe progress listener setup complete');
+      } catch (error) {
+        console.error('Failed to setup retranscribe progress listener:', error);
+      }
+    };
+
+    setupRetranscribeProgressListener();
+
+    return () => {
+      console.log('Cleaning up retranscribe progress listener...');
+      if (unlistenFn) {
+        unlistenFn();
+      }
+    };
+  }, []);
+
   // Set up transcription error listener for model loading failures
   useEffect(() => {
     let unlistenFn: (() => void) | undefined;

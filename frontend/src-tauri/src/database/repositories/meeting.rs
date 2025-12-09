@@ -95,12 +95,39 @@ impl MeetingsRepository {
                 })
                 .collect::<Vec<_>>();
 
+            // Try to load improved transcript from folder if available
+            let improved_transcript = meeting.folder_path.as_ref().and_then(|folder| {
+                let improved_path = std::path::Path::new(folder).join("transcripts_improved.json");
+                if improved_path.exists() {
+                    match std::fs::read_to_string(&improved_path) {
+                        Ok(content) => {
+                            // Parse JSON and extract transcript field
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                                if let Some(transcript) = json.get("transcript").and_then(|v| v.as_str()) {
+                                    info!("📝 Loaded improved transcript from {}", improved_path.display());
+                                    return Some(transcript.to_string());
+                                }
+                            }
+                            None
+                        }
+                        Err(e) => {
+                            error!("Failed to read improved transcript: {}", e);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            });
+
             Ok(Some(MeetingDetails {
                 id: meeting.id,
                 title: meeting.title,
                 created_at: meeting.created_at.0.to_rfc3339(),
                 updated_at: meeting.updated_at.0.to_rfc3339(),
                 transcripts: meeting_transcripts,
+                improved_transcript,
+                folder_path: meeting.folder_path,
             }))
         } else {
             transaction.rollback().await?;

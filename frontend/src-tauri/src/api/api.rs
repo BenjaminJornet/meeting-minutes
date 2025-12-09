@@ -131,6 +131,10 @@ pub struct MeetingDetails {
     pub created_at: String,
     pub updated_at: String,
     pub transcripts: Vec<MeetingTranscript>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub improved_transcript: Option<String>, // Full text from remote whisper re-transcription
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder_path: Option<String>, // Path to meeting folder
 }
 
 #[derive(Debug, Serialize, Deserialize)]

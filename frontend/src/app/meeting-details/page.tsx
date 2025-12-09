@@ -14,6 +14,8 @@ interface MeetingDetailsResponse {
   created_at: string;
   updated_at: string;
   transcripts: Transcript[];
+  improved_transcript?: string | null;
+  folder_path?: string | null;
 }
 
 function MeetingDetailsContent() {

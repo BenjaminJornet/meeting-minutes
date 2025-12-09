@@ -166,6 +166,7 @@ impl SettingsRepository {
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
             "parakeet" => return Ok(()), // Parakeet doesn't need an API key, return early
+            "remoteWhisper" => "whisperApiKey", // Store remote URL in whisperApiKey column
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",
@@ -198,6 +199,7 @@ impl SettingsRepository {
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
             "parakeet" => return Ok(None), // Parakeet doesn't need an API key
+            "remoteWhisper" => "whisperApiKey", // Remote URL stored in whisperApiKey column
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",

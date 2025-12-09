@@ -104,6 +104,7 @@ export default function PageContent({
 
         <TranscriptPanel
           transcripts={meetingData.transcripts}
+          improvedTranscript={meeting.improved_transcript}
           customPrompt={customPrompt}
           onPromptChange={setCustomPrompt}
           onCopyTranscript={copyOperations.handleCopyTranscript}

@@ -3,6 +3,7 @@
 // Commands for re-transcribing audio files with a remote whisper server
 // for higher quality transcripts after recording.
 
+use chrono::Utc;
 use log::{error, info, warn};
 use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
@@ -272,6 +273,27 @@ pub async fn retranscribe_audio_file(
         }
     }
     
+    // Save improved transcript to file
+    let audio_path_buf = PathBuf::from(&audio_path);
+    if let Some(meeting_folder) = audio_path_buf.parent() {
+        let improved_path = meeting_folder.join("transcripts_improved.json");
+        let improved_json = serde_json::json!({
+            "version": "1.0",
+            "source": "remote_whisper",
+            "server_url": server_url,
+            "created_at": chrono::Utc::now().to_rfc3339(),
+            "processing_time_secs": processing_time,
+            "transcript": transcript.clone(),
+            "segments": [] // Will be populated if diarization is enabled
+        });
+        
+        if let Err(e) = std::fs::write(&improved_path, serde_json::to_string_pretty(&improved_json).unwrap_or_default()) {
+            warn!("Failed to save improved transcript: {}", e);
+        } else {
+            info!("💾 Saved improved transcript to {}", improved_path.display());
+        }
+    }
+    
     Ok(RetranscribeResult {
         success: true,
         transcript: Some(transcript),
@@ -403,4 +425,59 @@ fn get_recordings_dir() -> Result<PathBuf, String> {
     dirs::document_dir()
         .map(|d| d.join("meetily-recordings"))
         .ok_or_else(|| "Could not find recordings directory".to_string())
+}
+
+/// Auto-retranscribe after recording stops (called from Rust, not a command)
+/// This is triggered automatically when a recording ends
+pub async fn auto_retranscribe_meeting(
+    meeting_folder: PathBuf,
+    remote_url: Option<String>,
+) -> Result<RetranscribeResult, String> {
+    info!("🔄 Auto-retranscription starting for folder: {}", meeting_folder.display());
+    
+    // Find audio file in meeting folder
+    let audio_path = meeting_folder.join("audio.mp4");
+    if !audio_path.exists() {
+        warn!("⚠️ No audio.mp4 found in {}", meeting_folder.display());
+        return Err("Audio file not found".to_string());
+    }
+    
+    // Call the main retranscription function
+    let result = retranscribe_audio_file(
+        audio_path.to_string_lossy().to_string(),
+        remote_url,
+        None, // Will use MEETILY_LANGUAGE from env
+    ).await?;
+    
+    if result.success {
+        info!("✅ Auto-retranscription successful for {}", meeting_folder.display());
+    } else {
+        warn!("⚠️ Auto-retranscription failed: {:?}", result.error);
+    }
+    
+    Ok(result)
+}
+
+/// Check if remote whisper is configured and available
+pub async fn is_remote_whisper_available() -> bool {
+    // Check if provider is set to remoteWhisper
+    let server_url = std::env::var("MEETILY_WHISPER_URL")
+        .unwrap_or_else(|_| "".to_string());
+    
+    if server_url.is_empty() {
+        return false;
+    }
+    
+    // Try to connect to the server
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build() {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    
+    match client.get(&server_url).send().await {
+        Ok(response) => response.status().is_success() || response.status().as_u16() == 200,
+        Err(_) => false,
+    }
 }

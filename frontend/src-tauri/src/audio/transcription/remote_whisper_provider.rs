@@ -12,9 +12,23 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Response from the whisper.cpp server /inference endpoint
+// Response format 1: {"text": "..."}
 #[derive(Debug, Deserialize)]
 struct WhisperServerResponse {
     text: String,
+}
+
+// Response format 2: {"transcription": [{"timestamps": {...}, "offsets": {...}, "text": "..."}]}
+#[derive(Debug, Deserialize)]
+struct WhisperServerResponseWithTranscription {
+    transcription: Vec<TranscriptionSegment>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TranscriptionSegment {
+    text: Option<String>,
+    #[serde(default)]
+    tokens: Vec<serde_json::Value>,
 }
 
 /// Configuration for the remote whisper server
@@ -208,13 +222,33 @@ impl TranscriptionProvider for RemoteWhisperProvider {
             )));
         }
 
-        // Parse response
-        let result: WhisperServerResponse = response.json().await.map_err(|e| {
-            error!("❌ Failed to parse whisper response: {}", e);
-            TranscriptionError::EngineFailed(format!("Failed to parse response: {}", e))
+        // Parse response - handle multiple JSON formats from whisper.cpp server
+        let response_text = response.text().await.map_err(|e| {
+            error!("❌ Failed to read whisper response: {}", e);
+            TranscriptionError::EngineFailed(format!("Failed to read response: {}", e))
         })?;
 
-        let text = result.text.trim().to_string();
+        debug!("🌐 Raw response from remote whisper: {}", response_text);
+
+        // Try format 1: {"text": "..."}
+        let text = if let Ok(result) = serde_json::from_str::<WhisperServerResponse>(&response_text) {
+            result.text.trim().to_string()
+        }
+        // Try format 2: {"transcription": [{"text": "..."}]}
+        else if let Ok(result) = serde_json::from_str::<WhisperServerResponseWithTranscription>(&response_text) {
+            result.transcription
+                .iter()
+                .filter_map(|seg| seg.text.as_ref())
+                .map(|t| t.trim())
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+        // Fallback: plain text response
+        else {
+            warn!("⚠️ Could not parse JSON, using raw response as text");
+            response_text.trim().to_string()
+        };
+
         debug!("🌐 Remote transcription: '{}'", text);
 
         Ok(TranscriptResult {

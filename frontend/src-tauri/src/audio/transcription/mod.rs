@@ -29,6 +29,8 @@ pub use worker::{
 pub use retranscribe_commands::{
     retranscribe_audio_file,
     list_recordings_for_retranscription,
+    auto_retranscribe_meeting,
+    is_remote_whisper_available,
     RetranscribeResult,
     RecordingInfo,
 };
