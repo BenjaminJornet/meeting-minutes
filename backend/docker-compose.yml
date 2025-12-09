@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ⚠️  AUDIO PROCESSING WARNING:
 # Docker containers with insufficient resources will drop audio chunks when
 # the processing queue becomes full (MAX_AUDIO_QUEUE_SIZE=10, lib.rs:54).
@@ -49,6 +47,23 @@ services:
       - ${LOCAL_MODELS_DIR:-./models}:/app/local_models:ro
       # Optional: mount custom configuration
       - ${CONFIG_DIR:-./config}:/app/config:ro
+    
+    # GPU support for NVIDIA
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8178/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     
     # Exclude from macOS profile
     profiles:
@@ -306,6 +321,15 @@ services:
     profiles:
       - web
 
+  # NOTE: The frontend is a Tauri desktop application that requires native audio APIs.
+  # It cannot run as a Docker container because it needs direct access to:
+  #   - Microphone devices
+  #   - System audio capture
+  #   - Native OS APIs
+  # 
+  # Build the Tauri app locally on the machine where you want to use it.
+  # See docs/REMOTE_DESKTOP_SETUP.md for instructions on connecting to remote backends.
+
 # Named volumes for persistent data
 volumes:
   whisper_models:
@@ -315,7 +339,8 @@ volumes:
   meeting_app_logs:
     driver: local
 
-# Networks (optional)
+# Networks
 networks:
   default:
-    name: whisper-network
+    name: meeting-minutes
+    external: true

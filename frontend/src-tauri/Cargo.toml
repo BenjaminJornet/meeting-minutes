@@ -116,6 +116,9 @@ dashmap = "6.1.0"
 # Directories
 dirs = "5.0.1"
 
+# Environment variables from .env file
+dotenvy = "0.15"
+
 # Additional dependencies for notification system
 url = "2.5.0"
 
@@ -165,13 +168,13 @@ futures-channel = "0.3.31"
 whisper-rs = { version = "0.13.2", features = ["raw-api", "metal", "coreml"] }
 
 # Windows-specific dependencies
-# Default: CPU-only build (no BLAS)
+# Default: CPU-only build
 # Users can enable features manually:
 #   --features cuda     (NVIDIA GPUs)
 #   --features vulkan   (AMD/Intel GPUs)
 #   --features openblas (OpenBLAS optimization, requires BLAS_INCLUDE_DIRS)
 [target.'cfg(target_os = "windows")'.dependencies]
-whisper-rs = { version = "0.13.2", features = ["raw-api", "vulkan"] }
+whisper-rs = { version = "0.13.2", features = ["raw-api"] }
 futures-channel = "0.3.31"
 
 # Linux-specific dependencies

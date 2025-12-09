@@ -112,8 +112,11 @@ pub async fn generate_summary(
             header::HeaderMap::new(),
         ),
         LLMProvider::Ollama => {
+            // Use provided endpoint, or fallback to MEETILY_OLLAMA_URL env var, or default to localhost
             let host = ollama_endpoint
+                .filter(|s| !s.is_empty())
                 .map(|s| s.to_string())
+                .or_else(|| std::env::var("MEETILY_OLLAMA_URL").ok())
                 .unwrap_or_else(|| "http://localhost:11434".to_string());
             (
                 format!("{}/v1/chat/completions", host),

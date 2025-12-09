@@ -332,10 +332,8 @@ build_server_args() {
     args+=("--port" "$WHISPER_PORT")
     args+=("--threads" "$WHISPER_THREADS")
     
-    # GPU configuration
-    if [ "$WHISPER_USE_GPU" = "true" ] && [ "$gpu_type" != "cpu" ]; then
-        args+=("--use-gpu")
-    fi
+    # Note: GPU is enabled at compile time via GGML_CUDA=ON, no --use-gpu flag needed
+    # The compiled binary will automatically use CUDA if available
     
     # Language settings
     if [ "$WHISPER_LANGUAGE" != "auto" ] && [ -n "$WHISPER_LANGUAGE" ]; then

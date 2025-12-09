@@ -95,6 +95,23 @@ Whether you're a defense consultant, enterprise executive, legal professional, o
 
 ## Installation
 
+### 🐳 **Docker (Recommended for Backend)**
+
+Run the backend services (API + Whisper with GPU) using Docker:
+
+```bash
+git clone https://github.com/Zackriya-Solutions/meeting-minutes.git
+cd meeting-minutes/backend
+cp .env.example .env
+docker network create meeting-minutes
+docker compose -p meeting-minutes --profile default build
+docker compose -p meeting-minutes --profile default up -d
+```
+
+📖 **[Full Docker Installation Guide](docs/DOCKER_INSTALLATION.md)**
+
+📖 **[Remote Desktop Setup](docs/REMOTE_DESKTOP_SETUP.md)** - Run backend on a server, app on your laptop
+
 ### 🪟 **Windows**
 
 1. Download the latest `x64-setup.exe` from [Releases](https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest)

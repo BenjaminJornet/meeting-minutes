@@ -1,6 +1,7 @@
 use log::{debug as log_debug, error as log_error, info as log_info, warn as log_warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::env;
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_store::StoreExt;
 
@@ -15,8 +16,12 @@ use crate::{
     state::AppState,
 };
 
-// Hardcoded server URL
-const APP_SERVER_URL: &str = "http://localhost:5167";
+// Server URL - configurable via MEETILY_BACKEND_URL environment variable
+// Default: http://localhost:5167 (local development)
+// Remote example: http://100.64.0.4:5167 (Tailscale IP)
+fn get_app_server_url() -> String {
+    env::var("MEETILY_BACKEND_URL").unwrap_or_else(|_| "http://localhost:5167".to_string())
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
@@ -209,10 +214,11 @@ async fn get_auth_token<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
     }
 }
 
-// Helper function to get server address - now hardcoded
+// Helper function to get server address - configurable via MEETILY_BACKEND_URL env var
 async fn get_server_address<R: Runtime>(_app: &AppHandle<R>) -> Result<String, String> {
-    log_info!("Using hardcoded server URL: {}", APP_SERVER_URL);
-    Ok(APP_SERVER_URL.to_string())
+    let url = get_app_server_url();
+    log_info!("Using backend URL: {} (set MEETILY_BACKEND_URL to override)", url);
+    Ok(url)
 }
 
 // Generic API call function with optional authentication

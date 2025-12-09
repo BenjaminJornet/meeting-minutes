@@ -142,7 +142,12 @@ async fn fetch_model_info(
     endpoint: Option<&str>,
 ) -> Result<ModelMetadata, String> {
     let client = Client::new();
-    let base_url = endpoint.unwrap_or("http://localhost:11434");
+    // Use provided endpoint, or fallback to MEETILY_OLLAMA_URL env var, or default to localhost
+    let base_url = endpoint
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("MEETILY_OLLAMA_URL").ok())
+        .unwrap_or_else(|| "http://localhost:11434".to_string());
     let url = format!("{}/api/show", base_url);
 
     let payload = serde_json::json!({

@@ -49,9 +49,10 @@ RUN cmake --build build --config Release --target whisper-server -j$(nproc)
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION} AS runtime
 
 # Set CUDA environment for runtime
+# Note: We put system libs BEFORE compat to use the real NVIDIA driver injected by Docker
 ARG CUDA_MAIN_VERSION=12.3
 ENV CUDA_MAIN_VERSION=${CUDA_MAIN_VERSION}
-ENV LD_LIBRARY_PATH=/usr/local/cuda-${CUDA_MAIN_VERSION}/compat:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/local/cuda-${CUDA_MAIN_VERSION}/lib64:$LD_LIBRARY_PATH
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \

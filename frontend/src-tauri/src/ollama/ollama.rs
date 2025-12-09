@@ -160,7 +160,12 @@ async fn get_models_via_http_with_retry(endpoint: Option<&str>) -> Result<Vec<Ol
 
 async fn get_models_via_http_async(endpoint: Option<&str>) -> Result<Vec<OllamaModel>, String> {
     let client = Client::new();
-    let base_url = endpoint.unwrap_or("http://localhost:11434");
+    // Use provided endpoint, or fallback to MEETILY_OLLAMA_URL env var, or default to localhost
+    let base_url = endpoint
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("MEETILY_OLLAMA_URL").ok())
+        .unwrap_or_else(|| "http://localhost:11434".to_string());
     let url = format!("{}/api/tags", base_url);
 
     let response = client
@@ -279,7 +284,13 @@ pub async fn pull_ollama_model<R: Runtime>(
     }
 
     let client = Client::new();
-    let base_url = endpoint.as_deref().unwrap_or("http://localhost:11434");
+    // Use provided endpoint, or fallback to MEETILY_OLLAMA_URL env var, or default to localhost
+    let base_url = endpoint
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("MEETILY_OLLAMA_URL").ok())
+        .unwrap_or_else(|| "http://localhost:11434".to_string());
     let url = format!("{}/api/pull", base_url);
 
     let payload = serde_json::json!({
@@ -438,7 +449,13 @@ pub async fn delete_ollama_model(
     endpoint: Option<String>,
 ) -> Result<(), String> {
     let client = Client::new();
-    let base_url = endpoint.as_deref().unwrap_or("http://localhost:11434");
+    // Use provided endpoint, or fallback to MEETILY_OLLAMA_URL env var, or default to localhost
+    let base_url = endpoint
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("MEETILY_OLLAMA_URL").ok())
+        .unwrap_or_else(|| "http://localhost:11434".to_string());
     let url = format!("{}/api/delete", base_url);
 
     let payload = serde_json::json!({
