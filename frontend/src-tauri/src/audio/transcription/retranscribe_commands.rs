@@ -20,28 +20,46 @@ pub struct RetranscribeResult {
     pub processing_time_secs: f64,
 }
 
-/// Response from the whisper.cpp server /inference endpoint
-/// The server can return different formats depending on configuration
+/// Response from the enhanced transcription service
 #[derive(Debug, Deserialize)]
-struct WhisperServerResponse {
-    #[serde(default)]
-    text: Option<String>,
-    #[serde(default)]
-    transcription: Option<Vec<TranscriptionSegment>>,
-    #[serde(default)]
+struct EnhancedJobResponse {
+    job_id: String,
+    status: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct EnhancedStatusResponse {
+    status: String,
+    progress: Option<i32>,
+    result: Option<EnhancedResult>,
     error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+struct EnhancedResult {
+    segments: Vec<TranscriptionSegment>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 struct TranscriptionSegment {
     #[serde(default)]
     text: Option<String>,
     #[serde(default)]
     speaker: Option<String>,
     #[serde(default)]
-    t0: Option<i64>,
+    start: Option<f64>,
     #[serde(default)]
-    t1: Option<i64>,
+    end: Option<f64>,
+    #[serde(default)]
+    words: Option<Vec<Word>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct Word {
+    word: String,
+    start: f64,
+    end: f64,
+    probability: f64,
 }
 
 /// Re-transcribe an audio file using the remote whisper server
@@ -54,14 +72,15 @@ pub async fn retranscribe_audio_file(
 ) -> Result<RetranscribeResult, String> {
     let start_time = std::time::Instant::now();
     
-    info!("🔄 Starting re-transcription of: {}", audio_path);
+    info!("🔄 Starting enhanced re-transcription of: {}", audio_path);
     
-    // Get server URL from parameter or environment
-    let server_url = remote_url
-        .or_else(|| std::env::var("MEETILY_WHISPER_URL").ok())
-        .unwrap_or_else(|| "http://localhost:8178".to_string());
+    // Use meetily-backend URL (default 5167)
+    // If remote_url is provided, assume it points to the backend base URL
+    let backend_url = remote_url
+        .or_else(|| std::env::var("MEETILY_BACKEND_URL").ok())
+        .unwrap_or_else(|| "http://localhost:5167".to_string());
     
-    info!("🌐 Using remote whisper server: {}", server_url);
+    info!("🌐 Using backend server: {}", backend_url);
     
     // Read the audio file
     let audio_path = PathBuf::from(&audio_path);
@@ -75,13 +94,12 @@ pub async fn retranscribe_audio_file(
         });
     }
     
-    // Check file extension
+    // Check file extension and convert if needed
     let extension = audio_path.extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
     
-    // If not a WAV file, convert it first
     let wav_path = if extension != "wav" {
         info!("📦 Converting {} to WAV format...", extension);
         match convert_to_wav(&audio_path).await {
@@ -114,11 +132,11 @@ pub async fn retranscribe_audio_file(
         }
     };
     
-    info!("📤 Sending {} bytes to remote whisper server...", wav_data.len());
+    info!("📤 Sending {} bytes to backend...", wav_data.len());
     
-    // Create HTTP client with longer timeout for large files
+    // Create HTTP client
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300)) // 5 minutes for long recordings
+        .timeout(std::time::Duration::from_secs(30)) // Short timeout for start request
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     
@@ -128,179 +146,134 @@ pub async fn retranscribe_audio_file(
         .mime_str("audio/wav")
         .map_err(|e| format!("Failed to create file part: {}", e))?;
     
-    let mut form = Form::new()
-        .part("file", file_part)
-        .text("temperature", "0.0")
-        .text("temperature_inc", "0.2")
-        .text("response_format", "json")
-        .text("diarize", "true");  // Enable speaker diarization
+    let mut form = Form::new().part("file", file_part);
     
-    // Add language if specified, or use from environment
-    let lang = language.or_else(|| std::env::var("MEETILY_LANGUAGE").ok());
-    if let Some(ref l) = lang {
-        if l != "auto" && l != "auto-translate" {
+    if let Some(ref l) = language {
+        if l != "auto" {
             form = form.text("language", l.clone());
         }
     }
     
-    info!("📋 Request params: diarize=true, language={:?}", lang);
-    
-    // Send request
-    let inference_url = format!("{}/inference", server_url);
-    let response = match client
-        .post(&inference_url)
-        .multipart(form)
-        .send()
-        .await
-    {
+    // Start Job
+    let start_url = format!("{}/enhanced-transcribe", backend_url);
+    let response = match client.post(&start_url).multipart(form).send().await {
         Ok(r) => r,
-        Err(e) => {
-            error!("❌ Remote whisper request failed: {}", e);
-            return Ok(RetranscribeResult {
-                success: false,
-                transcript: None,
-                error: Some(format!("Failed to connect to remote server: {}", e)),
-                audio_duration_secs: None,
-                processing_time_secs: start_time.elapsed().as_secs_f64(),
-            });
-        }
+        Err(e) => return Ok(RetranscribeResult {
+            success: false,
+            transcript: None,
+            error: Some(format!("Failed to connect to backend: {}", e)),
+            audio_duration_secs: None,
+            processing_time_secs: start_time.elapsed().as_secs_f64(),
+        }),
     };
-    
+
     if !response.status().is_success() {
-        let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
-        error!("❌ Remote whisper error {}: {}", status, error_text);
         return Ok(RetranscribeResult {
             success: false,
             transcript: None,
-            error: Some(format!("Server error {}: {}", status, error_text)),
+            error: Some(format!("Backend error: {}", error_text)),
             audio_duration_secs: None,
             processing_time_secs: start_time.elapsed().as_secs_f64(),
         });
     }
+
+    let job_resp: EnhancedJobResponse = response.json().await.map_err(|e| format!("Failed to parse job response: {}", e))?;
+    let job_id = job_resp.job_id;
+    info!("✅ Job started: {}", job_id);
+
+    // Poll for completion
+    let poll_client = reqwest::Client::new();
+    let status_url = format!("{}/enhanced-transcribe/{}", backend_url, job_id);
     
-    // Parse response - first get the raw text to log it
-    let response_text = match response.text().await {
-        Ok(t) => t,
-        Err(e) => {
-            error!("❌ Failed to read response body: {}", e);
-            return Ok(RetranscribeResult {
-                success: false,
-                transcript: None,
-                error: Some(format!("Failed to read server response: {}", e)),
-                audio_duration_secs: None,
-                processing_time_secs: start_time.elapsed().as_secs_f64(),
-            });
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        
+        let status_resp = match poll_client.get(&status_url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("Poll failed: {}", e);
+                continue;
+            }
+        };
+        
+        if !status_resp.status().is_success() {
+             warn!("Poll error status: {}", status_resp.status());
+             continue;
         }
-    };
-    
-    info!("📥 Raw response (first 500 chars): {}", &response_text.chars().take(500).collect::<String>());
-    
-    // Try to parse as JSON
-    let result: WhisperServerResponse = match serde_json::from_str(&response_text) {
-        Ok(r) => r,
-        Err(e) => {
-            error!("❌ Failed to parse whisper response as JSON: {}", e);
-            // If it's not JSON, maybe it's plain text
-            if !response_text.trim().is_empty() && !response_text.contains("error") {
-                info!("📝 Treating response as plain text transcript");
-                let processing_time = start_time.elapsed().as_secs_f64();
+        
+        let status: EnhancedStatusResponse = match status_resp.json().await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("Failed to parse status: {}", e);
+                continue;
+            }
+        };
+        
+        info!("Job {} status: {} (progress: {:?})", job_id, status.status, status.progress);
+        
+        if status.status == "completed" {
+            if let Some(result) = status.result {
+                let json_str = serde_json::to_string(&result.segments).unwrap_or_default();
+                
+                // Save improved transcript to file
+                let audio_path_buf = PathBuf::from(&audio_path);
+                if let Some(meeting_folder) = audio_path_buf.parent() {
+                    let improved_path = meeting_folder.join("transcripts_improved.json");
+                    let improved_json = serde_json::json!({
+                        "version": "1.0",
+                        "source": "enhanced_backend",
+                        "server_url": backend_url,
+                        "created_at": chrono::Utc::now().to_rfc3339(),
+                        "processing_time_secs": start_time.elapsed().as_secs_f64(),
+                        "transcript": json_str, // Store raw segments JSON
+                        "segments": result.segments
+                    });
+                    
+                    if let Err(e) = std::fs::write(&improved_path, serde_json::to_string_pretty(&improved_json).unwrap_or_default()) {
+                        warn!("Failed to save improved transcript: {}", e);
+                    } else {
+                        info!("💾 Saved improved transcript to {}", improved_path.display());
+                    }
+                }
+
                 return Ok(RetranscribeResult {
                     success: true,
-                    transcript: Some(response_text.trim().to_string()),
+                    transcript: Some(json_str),
                     error: None,
                     audio_duration_secs: None,
-                    processing_time_secs: processing_time,
+                    processing_time_secs: start_time.elapsed().as_secs_f64(),
+                });
+            } else {
+                return Ok(RetranscribeResult {
+                    success: false,
+                    transcript: None,
+                    error: Some("Job completed but no result found".to_string()),
+                    audio_duration_secs: None,
+                    processing_time_secs: start_time.elapsed().as_secs_f64(),
                 });
             }
+        } else if status.status == "failed" {
             return Ok(RetranscribeResult {
                 success: false,
                 transcript: None,
-                error: Some(format!("Failed to parse server response: {}. Raw: {}", e, &response_text.chars().take(200).collect::<String>())),
+                error: status.error.or(Some("Job failed".to_string())),
                 audio_duration_secs: None,
                 processing_time_secs: start_time.elapsed().as_secs_f64(),
             });
         }
-    };
-    
-    // Check for error in response
-    if let Some(err) = result.error {
-        error!("❌ Server returned error: {}", err);
-        return Ok(RetranscribeResult {
-            success: false,
-            transcript: None,
-            error: Some(err),
-            audio_duration_secs: None,
-            processing_time_secs: start_time.elapsed().as_secs_f64(),
-        });
-    }
-    
-    // Build transcript from response
-    let transcript = if let Some(text) = result.text {
-        // Simple text response
-        text.trim().to_string()
-    } else if let Some(segments) = result.transcription {
-        // Diarized response with segments
-        segments
-            .iter()
-            .map(|seg| {
-                let speaker = seg.speaker.as_deref().unwrap_or("Speaker");
-                let text = seg.text.as_deref().unwrap_or("");
-                format!("[{}]: {}", speaker, text.trim())
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    } else {
-        error!("❌ No transcript found in response");
-        return Ok(RetranscribeResult {
-            success: false,
-            transcript: None,
-            error: Some("No transcript in server response".to_string()),
-            audio_duration_secs: None,
-            processing_time_secs: start_time.elapsed().as_secs_f64(),
-        });
-    };
-    
-    let processing_time = start_time.elapsed().as_secs_f64();
-    
-    info!("✅ Re-transcription completed in {:.2}s", processing_time);
-    info!("📝 Transcript length: {} characters", transcript.len());
-    
-    // Clean up temporary WAV file if we created one
-    if extension != "wav" && wav_path != audio_path {
-        if let Err(e) = std::fs::remove_file(&wav_path) {
-            warn!("Failed to clean up temp WAV file: {}", e);
-        }
-    }
-    
-    // Save improved transcript to file
-    let audio_path_buf = PathBuf::from(&audio_path);
-    if let Some(meeting_folder) = audio_path_buf.parent() {
-        let improved_path = meeting_folder.join("transcripts_improved.json");
-        let improved_json = serde_json::json!({
-            "version": "1.0",
-            "source": "remote_whisper",
-            "server_url": server_url,
-            "created_at": chrono::Utc::now().to_rfc3339(),
-            "processing_time_secs": processing_time,
-            "transcript": transcript.clone(),
-            "segments": [] // Will be populated if diarization is enabled
-        });
         
-        if let Err(e) = std::fs::write(&improved_path, serde_json::to_string_pretty(&improved_json).unwrap_or_default()) {
-            warn!("Failed to save improved transcript: {}", e);
-        } else {
-            info!("💾 Saved improved transcript to {}", improved_path.display());
+        // Timeout check (e.g. 2 hours)
+        if start_time.elapsed().as_secs() > 7200 {
+             return Ok(RetranscribeResult {
+                success: false,
+                transcript: None,
+                error: Some("Job timed out".to_string()),
+                audio_duration_secs: None,
+                processing_time_secs: start_time.elapsed().as_secs_f64(),
+            });
         }
     }
-    
-    Ok(RetranscribeResult {
-        success: true,
-        transcript: Some(transcript),
-        error: None,
-        audio_duration_secs: None, // Could calculate from WAV header
-        processing_time_secs: processing_time,
-    })
 }
 
 /// Convert an audio file to WAV format using FFmpeg
@@ -354,6 +327,15 @@ fn find_ffmpeg_path() -> Option<String> {
     None
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RecordingInfo {
+    pub meeting_name: String,
+    pub audio_path: String,
+    pub has_transcript: bool,
+    pub has_improved_transcript: bool,
+    pub file_size_bytes: u64,
+}
+
 /// List all recordings that can be re-transcribed
 #[command]
 pub async fn list_recordings_for_retranscription() -> Result<Vec<RecordingInfo>, String> {
@@ -368,6 +350,7 @@ pub async fn list_recordings_for_retranscription() -> Result<Vec<RecordingInfo>,
                 // Look for audio.mp4 in the meeting folder
                 let audio_path = path.join("audio.mp4");
                 let transcript_path = path.join("transcript.txt");
+                let improved_path = path.join("transcripts_improved.json");
                 
                 if audio_path.exists() {
                     let meeting_name = path.file_name()
@@ -376,6 +359,7 @@ pub async fn list_recordings_for_retranscription() -> Result<Vec<RecordingInfo>,
                         .to_string();
                     
                     let has_transcript = transcript_path.exists();
+                    let has_improved_transcript = improved_path.exists();
                     
                     // Get file size
                     let file_size = std::fs::metadata(&audio_path)
@@ -386,6 +370,7 @@ pub async fn list_recordings_for_retranscription() -> Result<Vec<RecordingInfo>,
                         meeting_name,
                         audio_path: audio_path.to_string_lossy().to_string(),
                         has_transcript,
+                        has_improved_transcript,
                         file_size_bytes: file_size,
                     });
                 }
@@ -397,14 +382,6 @@ pub async fn list_recordings_for_retranscription() -> Result<Vec<RecordingInfo>,
     recordings.sort_by(|a, b| b.meeting_name.cmp(&a.meeting_name));
     
     Ok(recordings)
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RecordingInfo {
-    pub meeting_name: String,
-    pub audio_path: String,
-    pub has_transcript: bool,
-    pub file_size_bytes: u64,
 }
 
 fn get_recordings_dir() -> Result<PathBuf, String> {

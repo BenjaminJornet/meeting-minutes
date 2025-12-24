@@ -60,6 +60,10 @@ TAG=gpu
 # DOCKERFILE=Dockerfile.server-cpu
 # TAG=cpu
 
+# Enhanced ASR Configuration (Batch Processing)
+# Model size for faster-whisper (tiny, base, small, medium, large-v2, large-v3)
+ENHANCED_ASR_MODEL_SIZE=large-v3
+
 # Language for transcription
 WHISPER_LANGUAGE=fr  # Change to your language (en, de, es, etc.)
 
@@ -134,6 +138,14 @@ pnpm run tauri:build  # Production build
 │  │   Port: 5167    │    │     Port: 8178      │            │
 │  │  📁 Database    │    │   🎮 RTX 4090 GPU   │            │
 │  └─────────────────┘    └─────────────────────┘            │
+│           │                                                 │
+│           ▼                                                 │
+│  ┌─────────────────┐                                        │
+│  │  enhanced-asr   │                                        │
+│  │ (Faster-Whisper)│                                        │
+│  │   Port: 8000    │                                        │
+│  │ ⚡ Batch GPU ASR │                                        │
+│  └─────────────────┘                                        │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -272,7 +284,9 @@ Quick overview:
 ## 📝 Configuration Reference
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+|--ENHANCED_ASR_PORT` | `8000` | Enhanced ASR service port |
+| `ENHANCED_ASR_MODEL_SIZE` | `large-v3` | Model size for enhanced batch processing |
+| `--------|---------|-------------|
 | `DOCKERFILE` | `Dockerfile.server-cpu` | Dockerfile to use (gpu/cpu) |
 | `TAG` | `cpu` | Image tag (gpu/cpu) |
 | `WHISPER_MODEL` | `models/ggml-base.en.bin` | Whisper model path |

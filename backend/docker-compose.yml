@@ -29,13 +29,14 @@ services:
     environment:
       - WHISPER_HOST=0.0.0.0
       - WHISPER_PORT=8178
-      - WHISPER_MODEL=${WHISPER_MODEL:-models/ggml-base.en.bin}
+      - WHISPER_MODEL=${WHISPER_MODEL:-models/ggml-large-v3.bin}
       - WHISPER_THREADS=${WHISPER_THREADS:-0}
       - WHISPER_USE_GPU=${WHISPER_USE_GPU:-true}
-      - WHISPER_LANGUAGE=${WHISPER_LANGUAGE:-en}
+      - WHISPER_LANGUAGE=${WHISPER_LANGUAGE:-auto}
       - WHISPER_TRANSLATE=${WHISPER_TRANSLATE:-false}
       - WHISPER_DIARIZE=${WHISPER_DIARIZE:-false}
       - WHISPER_PRINT_PROGRESS=${WHISPER_PRINT_PROGRESS:-true}
+      - MAX_AUDIO_QUEUE_SIZE=30
     
     # Volume mounts
     volumes:
@@ -136,6 +137,32 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Enhanced ASR Service (faster-whisper + GPU)
+  enhanced-asr:
+    build:
+      context: ./enhanced_asr
+      dockerfile: Dockerfile
+    image: enhanced-asr:latest
+    container_name: enhanced-asr
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - WHISPER_MODEL_SIZE=large-v3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
   # Model downloader service - ensures models are downloaded before whisper server starts
   model-downloader:
     image: alpine/curl:latest
@@ -203,6 +230,8 @@ services:
       - PYTHONPATH=/app
       - DATABASE_PATH=/app/data/meeting_minutes.db
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - ENHANCED_ASR_URL=${ENHANCED_ASR_SERVICE_URL:-http://enhanced-asr:8000}
+      - WHISPER_SERVER_URL=http://whisper-server:${WHISPER_PORT:-8178}
     
     # Add extra host for Docker Desktop compatibility
     extra_hosts:
@@ -264,6 +293,8 @@ services:
       - PYTHONPATH=/app
       - DATABASE_PATH=/app/data/meeting_minutes.db
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - ENHANCED_ASR_URL=${ENHANCED_ASR_SERVICE_URL:-http://enhanced-asr:8000}
+      - WHISPER_SERVER_URL=http://whisper-server:${WHISPER_PORT:-8178}
     
     # Add extra host for Docker Desktop compatibility
     extra_hosts:

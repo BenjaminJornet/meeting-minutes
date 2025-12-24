@@ -29,7 +29,14 @@ This guide explains how to run Meetily with the **backend services on a remote s
 │  │  meetily-backend │  │  whisper-server  │  │    Ollama     │  │
 │  │   (FastAPI)      │  │     (GPU)        │  │   (GPU LLM)   │  │
 │  │   Port: 5167     │  │   Port: 8178     │  │  Port: 11434  │  │
-│  └──────────────────┘  └──────────────────┘  └───────────────┘  │
+│  └────────┬─────────┘  └──────────────────┘  └───────────────┘  │
+│           │                                          │          │
+│           ▼                                          │          │
+│  ┌──────────────────┐                                │          │
+│  │   enhanced-asr   │                                │          │
+│  │ (Faster-Whisper) │                                │          │
+│  │   Port: 8000     │                                │          │
+│  └──────────────────┘                                │          │
 │           │                                          │          │
 │           └──────────────┬───────────────────────────┘          │
 │                          │                                      │

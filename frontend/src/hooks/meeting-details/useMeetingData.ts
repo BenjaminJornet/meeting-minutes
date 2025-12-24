@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Transcript, Summary } from '@/types';
 import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummaryView';
 import { CurrentMeeting, useSidebar } from '@/components/Sidebar/SidebarProvider';
@@ -12,8 +12,41 @@ interface UseMeetingDataProps {
 }
 
 export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMeetingDataProps) {
+  // Helper to parse transcripts
+  const parseTranscripts = (m: any): Transcript[] => {
+    if (m.improved_transcript) {
+      try {
+        const parsed = JSON.parse(m.improved_transcript);
+        if (Array.isArray(parsed)) {
+          console.log('📝 Using improved transcript segments');
+          return parsed.map((seg: any, index: number) => ({
+            id: `improved-${index}`,
+            text: seg.text,
+            timestamp: new Date().toISOString(),
+            sequence_id: index,
+            audio_start_time: seg.start,
+            audio_end_time: seg.end,
+            duration: seg.end - seg.start,
+            is_partial: false,
+            confidence: 1.0,
+            speaker: seg.speaker
+          }));
+        }
+      } catch (e) {
+        console.warn('Failed to parse improved transcript, falling back to original', e);
+      }
+    }
+    return m.transcripts || [];
+  };
+
   // State
-  const [transcripts] = useState<Transcript[]>(meeting.transcripts);
+  const [transcripts, setTranscripts] = useState<Transcript[]>(() => parseTranscripts(meeting));
+  
+  // Update transcripts when meeting changes
+  useEffect(() => {
+    setTranscripts(parseTranscripts(meeting));
+  }, [meeting]);
+
   const [meetingTitle, setMeetingTitle] = useState(meeting.title || '+ New Call');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [isTitleDirty, setIsTitleDirty] = useState(false);

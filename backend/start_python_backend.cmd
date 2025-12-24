@@ -52,6 +52,10 @@ echo.
 REM Set environment variable for port
 set "PORT=%PORT%"
 
+REM Set environment variables for local execution (pointing to Docker ports on localhost)
+set "ENHANCED_ASR_URL=http://localhost:8000"
+set "WHISPER_SERVER_URL=http://localhost:8178"
+
 REM Run the Python backend in the current window to see output
 python app\main.py
 

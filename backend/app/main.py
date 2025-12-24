@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -11,6 +11,10 @@ import json
 from threading import Lock
 from transcript_processor import TranscriptProcessor
 import time
+import shutil
+import uuid
+import os
+from enhanced import enhanced_manager
 
 # Load environment variables
 load_dotenv()
@@ -639,6 +643,42 @@ async def shutdown_event():
         logger.info("Successfully cleaned up resources")
     except Exception as e:
         logger.error(f"Error during cleanup: {str(e)}", exc_info=True)
+
+# --- Enhanced Transcription Endpoints ---
+
+@app.post("/enhanced-transcribe")
+async def start_enhanced_transcription(
+    file: UploadFile = File(...),
+    language: Optional[str] = Form(None)
+):
+    """
+    Start a long-running enhanced transcription job.
+    Returns a job_id to poll for status.
+    """
+    try:
+        # Ensure temp dir exists
+        os.makedirs("/tmp", exist_ok=True)
+        
+        # Save file temporarily
+        temp_filename = f"/tmp/{uuid.uuid4()}_{file.filename}"
+        with open(temp_filename, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        job_id = await enhanced_manager.start_job(temp_filename, language)
+        return {"job_id": job_id, "status": "processing"}
+    except Exception as e:
+        logger.error(f"Failed to start enhanced transcription: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/enhanced-transcribe/{job_id}")
+async def get_enhanced_transcription_status(job_id: str):
+    """
+    Get the status and result of an enhanced transcription job.
+    """
+    status = enhanced_manager.get_job_status(job_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return status
 
 if __name__ == "__main__":
     import multiprocessing

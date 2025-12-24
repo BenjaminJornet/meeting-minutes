@@ -10,6 +10,7 @@ interface RecordingInfo {
   meeting_name: string;
   audio_path: string;
   has_transcript: boolean;
+  has_improved_transcript: boolean;
   file_size_bytes: number;
 }
 
@@ -224,6 +225,12 @@ export default function RetranscribePanel() {
                         <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
                           <CheckCircle className="h-3 w-3" />
                           Transcribed
+                        </span>
+                      )}
+                      {recording.has_improved_transcript && (
+                        <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                          <CheckCircle className="h-3 w-3" />
+                          Enhanced
                         </span>
                       )}
                       {status?.processingTime && (
