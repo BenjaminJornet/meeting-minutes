@@ -74,11 +74,22 @@ pub async fn retranscribe_audio_file(
     
     info!("🔄 Starting enhanced re-transcription of: {}", audio_path);
     
-    // Use meetily-backend URL (default 5167)
-    // If remote_url is provided, assume it points to the backend base URL
-    let backend_url = remote_url
-        .or_else(|| std::env::var("MEETILY_BACKEND_URL").ok())
-        .unwrap_or_else(|| "http://localhost:5167".to_string());
+    // Determine Backend URL
+    // The frontend sends 'remote_url' which is typically the Whisper Server URL (port 8178).
+    // We need to target the Backend API (port 5167).
+    let backend_url = if let Some(url) = remote_url {
+        if url.contains(":8178") {
+            info!("🔀 Converting Whisper URL to Backend URL (8178 -> 5167)");
+            url.replace(":8178", ":5167")
+        } else {
+            // If the URL doesn't have the standard Whisper port, use it as is
+            // (User might have configured a reverse proxy or custom port)
+            url
+        }
+    } else {
+        std::env::var("MEETILY_BACKEND_URL")
+            .unwrap_or_else(|_| "http://localhost:5167".to_string())
+    };
     
     info!("🌐 Using backend server: {}", backend_url);
     
