@@ -46,7 +46,10 @@ impl Default for RemoteWhisperConfig {
         Self {
             server_url: std::env::var("MEETILY_WHISPER_URL")
                 .unwrap_or_else(|_| "http://localhost:8178".to_string()),
-            timeout_secs: 60,
+            timeout_secs: std::env::var("MEETILY_WHISPER_TIMEOUT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(3600),
         }
     }
 }

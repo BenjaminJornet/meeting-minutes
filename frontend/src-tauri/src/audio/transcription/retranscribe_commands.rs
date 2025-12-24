@@ -88,7 +88,10 @@ pub async fn retranscribe_audio_file(
         }
     } else {
         std::env::var("MEETILY_BACKEND_URL")
-            .unwrap_or_else(|_| "http://localhost:5167".to_string())
+            .unwrap_or_else(|_| {
+                warn!("⚠️ MEETILY_BACKEND_URL not set, using default");
+                "http://localhost:5167".to_string()
+            })
     };
     
     info!("🌐 Using backend server: {}", backend_url);

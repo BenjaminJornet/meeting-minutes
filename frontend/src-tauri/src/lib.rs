@@ -686,6 +686,9 @@ pub fn run() {
             api::test_backend_connection,
             api::debug_backend_connection,
             api::open_external_url,
+            api::api_get_backend_url,
+            api::api_get_whisper_url,
+            api::api_get_ollama_url,
             // Summary commands
             summary::api_process_transcript,
             summary::api_get_summary,

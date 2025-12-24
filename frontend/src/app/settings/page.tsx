@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Settings2, Mic, Database as DatabaseIcon, SparkleIcon, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Settings2, Mic, Database as DatabaseIcon, SparkleIcon, RefreshCw, Archive } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { TranscriptSettings, TranscriptModelProps } from '@/components/TranscriptSettings';
@@ -9,8 +9,9 @@ import { RecordingSettings } from '@/components/RecordingSettings';
 import { PreferenceSettings } from '@/components/PreferenceSettings';
 import { SummaryModelSettings } from '@/components/SummaryModelSettings';
 import RetranscribePanel from '@/components/RetranscribePanel';
+import { ArchiveSettings } from '@/components/ArchiveSettings';
 
-type SettingsTab = 'general' | 'recording' | 'Transcriptionmodels' | 'summaryModels' | 'retranscribe';
+type SettingsTab = 'general' | 'recording' | 'Transcriptionmodels' | 'summaryModels' | 'retranscribe' | 'archiving';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -27,7 +28,8 @@ export default function SettingsPage() {
     { id: 'recording' as const, label: 'Recordings', icon: <Mic className="w-4 h-4" /> },
     { id: 'Transcriptionmodels' as const, label: 'Transcription', icon: <DatabaseIcon className="w-4 h-4" /> },
     { id: 'summaryModels' as const, label: 'Summary', icon: <SparkleIcon className="w-4 h-4" /> },
-    { id: 'retranscribe' as const, label: 'Re-transcription', icon: <RefreshCw className="w-4 h-4" /> }
+    { id: 'retranscribe' as const, label: 'Re-transcription', icon: <RefreshCw className="w-4 h-4" /> },
+    { id: 'archiving' as const, label: 'Archiving', icon: <Archive className="w-4 h-4" /> }
   ];
 
   // Load saved transcript configuration on mount
@@ -119,6 +121,7 @@ export default function SettingsPage() {
               )}
               {activeTab === 'summaryModels' && <SummaryModelSettings />}
               {activeTab === 'retranscribe' && <RetranscribePanel />}
+              {activeTab === 'archiving' && <ArchiveSettings />}
             </div>
           </div>
         </div>

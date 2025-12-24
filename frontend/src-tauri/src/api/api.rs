@@ -20,7 +20,36 @@ use crate::{
 // Default: http://localhost:5167 (local development)
 // Remote example: http://100.64.0.4:5167 (Tailscale IP)
 fn get_app_server_url() -> String {
-    env::var("MEETILY_BACKEND_URL").unwrap_or_else(|_| "http://localhost:5167".to_string())
+    if let Ok(url) = env::var("MEETILY_BACKEND_URL") {
+        return url;
+    }
+
+    // Fallback: Try to infer from OLLAMA_HOST
+    // If OLLAMA_HOST is http://100.64.0.4:11434, we assume backend is at http://100.64.0.4:5167
+    if let Ok(ollama_host) = env::var("OLLAMA_HOST") {
+        // If Ollama is remote, Backend is likely on the same host
+        if !ollama_host.contains("localhost") && !ollama_host.contains("127.0.0.1") {
+             let port = env::var("APP_PORT").unwrap_or_else(|_| "5167".to_string());
+             
+             // Replace the port part
+             // Assuming format http://ip:port or https://ip:port
+             if let Some(last_colon) = ollama_host.rfind(':') {
+                 // Check if the part after colon is numeric (port)
+                 let suffix = &ollama_host[last_colon+1..];
+                 if suffix.chars().all(char::is_numeric) {
+                     let base = &ollama_host[..last_colon];
+                     // Avoid replacing http: or https:
+                     if base.len() > 6 { 
+                         let inferred = format!("{}:{}", base, port);
+                         log_info!("ℹ️ Inferred backend URL from OLLAMA_HOST: {}", inferred);
+                         return inferred;
+                     }
+                 }
+             }
+        }
+    }
+
+    "http://localhost:5167".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1094,4 +1123,19 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
         Ok(_) => Ok(()),
         Err(e) => Err(format!("Failed to open URL: {}", e)),
     }
+}
+
+#[tauri::command]
+pub async fn api_get_backend_url() -> Result<String, String> {
+    Ok(get_app_server_url())
+}
+
+#[tauri::command]
+pub async fn api_get_whisper_url() -> Result<String, String> {
+    Ok(env::var("MEETILY_WHISPER_URL").unwrap_or_else(|_| "http://localhost:8178".to_string()))
+}
+
+#[tauri::command]
+pub async fn api_get_ollama_url() -> Result<String, String> {
+    Ok(env::var("MEETILY_OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string()))
 }

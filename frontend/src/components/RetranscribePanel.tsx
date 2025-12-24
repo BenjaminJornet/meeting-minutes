@@ -45,10 +45,45 @@ export default function RetranscribePanel() {
 
   const loadConfig = async () => {
     try {
-      const config = await invoke<{ remote_whisper_url?: string } | null>("api_get_transcript_config");
-      if (config?.remote_whisper_url) {
-        setRemoteUrl(config.remote_whisper_url);
+      let urlToUse = "";
+      
+      // 1. Get Env Var URL (defaults to localhost if not set)
+      let envUrl = "";
+      try {
+        envUrl = await invoke<string>("api_get_backend_url");
+      } catch (e) {
+        console.warn("Failed to get backend URL:", e);
       }
+
+      // 2. Get Settings URL
+      let settingsUrl = "";
+      try {
+        const config = await invoke<{ remote_whisper_url?: string } | null>("api_get_transcript_config");
+        if (config?.remote_whisper_url) {
+          settingsUrl = config.remote_whisper_url;
+        }
+      } catch (e) {
+        console.warn("Failed to get config:", e);
+      }
+
+      // 3. Decide
+      // If ENV var is set to something other than localhost, it takes precedence.
+      // Otherwise, if Settings are configured, use Settings.
+      // Finally, fall back to whatever ENV returned (likely localhost).
+      const isEnvLocal = envUrl.includes("localhost") || envUrl.includes("127.0.0.1");
+      
+      if (envUrl && !isEnvLocal) {
+        console.log("Using ENV defined backend URL:", envUrl);
+        urlToUse = envUrl;
+      } else if (settingsUrl) {
+        console.log("Using Settings defined URL:", settingsUrl);
+        urlToUse = settingsUrl;
+      } else {
+        console.log("Using default/fallback URL:", envUrl);
+        urlToUse = envUrl;
+      }
+
+      setRemoteUrl(urlToUse);
     } catch (err) {
       console.error("Failed to load config:", err);
     }

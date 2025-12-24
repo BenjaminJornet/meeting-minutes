@@ -107,11 +107,24 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const fetchSettings = async () => {
+        try {
+          const backendUrl = await invoke('api_get_backend_url') as string;
+          console.log('Using backend URL:', backendUrl);
+          setServerAddress(backendUrl);
+        } catch (error) {
+          console.error('Failed to get backend URL:', error);
+          setServerAddress('http://localhost:5167');
+        }
         
-        setServerAddress('http://localhost:5167');
-        setTranscriptServerAddress('http://127.0.0.1:8178/stream');
-        
-      
+        try {
+          const whisperUrl = await invoke('api_get_whisper_url') as string;
+          // Append /stream if not present, assuming the env var is the base URL
+          const streamUrl = whisperUrl.endsWith('/stream') ? whisperUrl : `${whisperUrl}/stream`;
+          setTranscriptServerAddress(streamUrl);
+        } catch (error) {
+          console.error('Failed to get whisper URL:', error);
+          setTranscriptServerAddress('http://127.0.0.1:8178/stream');
+        }
     };
     fetchSettings();
   }, []);

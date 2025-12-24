@@ -13,6 +13,8 @@ fn load_env_file() {
     let possible_paths: Vec<PathBuf> = vec![
         // 1. Current directory (dev mode)
         PathBuf::from(".env"),
+        // 1b. Backend directory (dev mode / monorepo)
+        PathBuf::from("../../backend/.env"),
         // 2. Executable's directory (bundled app)
         std::env::current_exe()
             .ok()
