@@ -146,8 +146,18 @@ pub async fn retranscribe_audio_file(
     info!("📤 Sending {} bytes to backend...", wav_data.len());
     
     // Create HTTP client
+    // Timeout configuration:
+    // 1. Check MEETILY_UPLOAD_TIMEOUT env var (seconds)
+    // 2. Default to 7200 seconds (2 hours) for very long meetings over slow connections
+    let timeout_secs = std::env::var("MEETILY_UPLOAD_TIMEOUT")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(7200);
+
+    info!("⏱️ Using upload/processing timeout: {} seconds", timeout_secs);
+
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30)) // Short timeout for start request
+        .timeout(std::time::Duration::from_secs(timeout_secs)) 
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     
@@ -274,12 +284,12 @@ pub async fn retranscribe_audio_file(
             });
         }
         
-        // Timeout check (e.g. 2 hours)
-        if start_time.elapsed().as_secs() > 7200 {
+        // Timeout check based on configured timeout
+        if start_time.elapsed().as_secs() > timeout_secs {
              return Ok(RetranscribeResult {
                 success: false,
                 transcript: None,
-                error: Some("Job timed out".to_string()),
+                error: Some(format!("Job timed out after {} seconds", timeout_secs)),
                 audio_duration_secs: None,
                 processing_time_secs: start_time.elapsed().as_secs_f64(),
             });
