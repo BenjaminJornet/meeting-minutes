@@ -57,8 +57,18 @@ export function EnhancedTranscriptView({ content, meetingFolderPath }: EnhancedT
   };
 
   const handleSpeakerSave = async (index: number) => {
-    const newSegments = [...segments];
-    newSegments[index].speaker = tempSpeakerName || null;
+    const oldSpeakerName = segments[index].speaker;
+    const newSpeakerName = tempSpeakerName || null;
+    
+    // Update ALL segments that had the same speaker name
+    const newSegments = segments.map(segment => {
+      // If the segment has the same speaker as the one we're editing (or both are null/undefined)
+      if (segment.speaker === oldSpeakerName) {
+        return { ...segment, speaker: newSpeakerName };
+      }
+      return segment;
+    });
+
     setSegments(newSegments);
     setEditingSpeakerIndex(null);
 

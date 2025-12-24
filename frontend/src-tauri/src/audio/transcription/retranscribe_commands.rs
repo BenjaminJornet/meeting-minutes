@@ -3,8 +3,7 @@
 // Commands for re-transcribing audio files with a remote whisper server
 // for higher quality transcripts after recording.
 
-use chrono::Utc;
-use log::{error, info, warn};
+use log::{info, warn};
 use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -24,6 +23,7 @@ pub struct RetranscribeResult {
 #[derive(Debug, Deserialize)]
 struct EnhancedJobResponse {
     job_id: String,
+    #[allow(dead_code)]
     status: String,
 }
 

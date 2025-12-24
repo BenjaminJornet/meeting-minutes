@@ -28,6 +28,7 @@ struct WhisperServerResponseWithTranscription {
 struct TranscriptionSegment {
     text: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     tokens: Vec<serde_json::Value>,
 }
 

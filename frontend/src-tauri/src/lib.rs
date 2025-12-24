@@ -38,6 +38,7 @@ pub(crate) use perf_trace;
 pub mod analytics;
 pub mod api;
 pub mod audio;
+pub mod archive;
 pub mod console_utils;
 pub mod database;
 pub mod notifications;
@@ -467,6 +468,9 @@ pub fn get_language_preference_internal() -> Option<String> {
 }
 
 pub fn run() {
+    // Load environment variables from .env file
+    dotenv::dotenv().ok();
+
     log::set_max_level(log::LevelFilter::Info);
 
     tauri::Builder::default()
@@ -749,6 +753,10 @@ pub fn run() {
             database::commands::get_database_directory,
             database::commands::open_database_folder,
             whisper_engine::commands::open_models_folder,
+            // Archive commands
+            archive::archive_meeting,
+            archive::restore_meeting,
+            archive::get_archivable_meetings,
             // System settings commands
             #[cfg(target_os = "macos")]
             utils::open_system_settings,

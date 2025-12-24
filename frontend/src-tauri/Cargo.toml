@@ -83,6 +83,7 @@ log = "0.4"
 env_logger = "0.11"
 tracing = "0.1.40"
 which = "6.0.1"
+dotenv = "0.15.0"
 
 # Bytes
 bytemuck = "1.16.1"

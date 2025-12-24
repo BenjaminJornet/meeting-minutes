@@ -149,6 +149,7 @@ services:
       - "8000:8000"
     environment:
       - WHISPER_MODEL_SIZE=large-v3
+      - HF_TOKEN=${HF_TOKEN}
     deploy:
       resources:
         reservations:
