@@ -708,6 +708,7 @@ pub fn run() {
             // Re-transcription commands (for post-recording high-quality transcription)
             audio::transcription::retranscribe_commands::retranscribe_audio_file,
             audio::transcription::retranscribe_commands::list_recordings_for_retranscription,
+            audio::transcription::retranscribe_commands::save_improved_transcript,
             // Language preference commands
             get_language_preference,
             set_language_preference,

@@ -479,3 +479,41 @@ pub async fn is_remote_whisper_available() -> bool {
         Err(_) => false,
     }
 }
+
+/// Save improved transcript to file
+#[command]
+pub async fn save_improved_transcript(
+    audio_path: String,
+    json_content: String,
+) -> Result<(), String> {
+    let audio_path_buf = PathBuf::from(&audio_path);
+    if let Some(meeting_folder) = audio_path_buf.parent() {
+        let improved_path = meeting_folder.join("transcripts_improved.json");
+        
+        // We need to preserve the metadata wrapper if it exists
+        // Read existing file to get metadata
+        let existing_content = std::fs::read_to_string(&improved_path)
+            .map_err(|e| format!("Failed to read existing transcript: {}", e))?;
+            
+        let mut json_data: serde_json::Value = serde_json::from_str(&existing_content)
+            .map_err(|e| format!("Failed to parse existing JSON: {}", e))?;
+            
+        // Parse the new segments content
+        let new_segments: serde_json::Value = serde_json::from_str(&json_content)
+            .map_err(|e| format!("Failed to parse new segments JSON: {}", e))?;
+            
+        // Update the segments field
+        if let Some(obj) = json_data.as_object_mut() {
+            obj.insert("segments".to_string(), new_segments.clone());
+            // Also update the stringified transcript field if it exists
+            obj.insert("transcript".to_string(), serde_json::Value::String(json_content));
+        }
+        
+        std::fs::write(&improved_path, serde_json::to_string_pretty(&json_data).unwrap_or_default())
+            .map_err(|e| format!("Failed to save transcript: {}", e))?;
+            
+        Ok(())
+    } else {
+        Err("Invalid audio path".to_string())
+    }
+}

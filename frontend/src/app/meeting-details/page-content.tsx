@@ -110,6 +110,7 @@ export default function PageContent({
           onCopyTranscript={copyOperations.handleCopyTranscript}
           onOpenMeetingFolder={meetingOperations.handleOpenMeetingFolder}
           isRecording={isRecording}
+          meetingFolderPath={meeting.folder_path}
         />
 
           <SummaryPanel

@@ -5,6 +5,7 @@ import { Transcript } from '@/types';
 import { TranscriptView } from '@/components/TranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
 import { cn } from '@/lib/utils';
+import { EnhancedTranscriptView } from './EnhancedTranscriptView';
 
 interface TranscriptPanelProps {
   transcripts: Transcript[];
@@ -14,6 +15,7 @@ interface TranscriptPanelProps {
   onCopyTranscript: () => void;
   onOpenMeetingFolder: () => Promise<void>;
   isRecording: boolean;
+  meetingFolderPath?: string | null;
 }
 
 export function TranscriptPanel({
@@ -23,7 +25,8 @@ export function TranscriptPanel({
   onPromptChange,
   onCopyTranscript,
   onOpenMeetingFolder,
-  isRecording
+  isRecording,
+  meetingFolderPath
 }: TranscriptPanelProps) {
   const [showImproved, setShowImproved] = useState(!!improvedTranscript);
   const hasImprovedTranscript = !!improvedTranscript && improvedTranscript.trim().length > 0;
@@ -70,19 +73,10 @@ export function TranscriptPanel({
       {/* Transcript content */}
       <div className="flex-1 overflow-y-auto pb-4">
         {showImproved && hasImprovedTranscript ? (
-          <div className="p-4">
-            <div className="text-xs text-green-600 mb-2 flex items-center gap-1">
-              <span>✨</span>
-              <span>Enhanced transcript from GPU server</span>
-            </div>
-            <div className="prose prose-sm max-w-none">
-              {improvedTranscript.split('\n').map((line, index) => (
-                <p key={index} className="mb-2 text-gray-700">
-                  {line}
-                </p>
-              ))}
-            </div>
-          </div>
+          <EnhancedTranscriptView 
+            content={improvedTranscript!} 
+            meetingFolderPath={meetingFolderPath}
+          />
         ) : (
           <TranscriptView transcripts={transcripts} />
         )}
