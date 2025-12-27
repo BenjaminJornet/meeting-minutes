@@ -104,14 +104,14 @@ app.add_middleware(
 def get_asr_model():
     global asr_model
     if asr_model is None:
-        logger.info(f"Loading whisperx model='{MODEL_SIZE}' device='{DEVICE}' compute_type='{COMPUTE_TYPE}' vad_method='{VAD_METHOD}'")
+        logger.info(f"🚀 Loading whisperx model='{MODEL_SIZE}' device='{DEVICE}' compute_type='{COMPUTE_TYPE}' vad_method='{VAD_METHOD}'")
         asr_model = whisperx.load_model(
             MODEL_SIZE, 
             DEVICE, 
             compute_type=COMPUTE_TYPE,
             vad_method=VAD_METHOD
         )
-        logger.info("ASR model loaded.")
+        logger.info("✅ ASR model loaded.")
     return asr_model
 
 
@@ -121,10 +121,10 @@ def get_diar_pipeline():
         return diar_pipeline
 
     if not HF_TOKEN:
-        logger.warning("HF_TOKEN not set. Diarization disabled.")
+        logger.warning("⚠️ HF_TOKEN not set. Diarization disabled.")
         return None
 
-    logger.info(f"Loading pyannote Pipeline '{PYANNOTE_DIAR_MODEL}' ...")
+    logger.info(f"🚀 Loading pyannote Pipeline '{PYANNOTE_DIAR_MODEL}' ...")
     # HF examples accept token/use_auth_token; token works on recent HF clients
     # pyannote.audio 3.x uses use_auth_token
     diar_pipeline = Pipeline.from_pretrained(PYANNOTE_DIAR_MODEL, use_auth_token=HF_TOKEN)
@@ -132,17 +132,17 @@ def get_diar_pipeline():
     # Try to move to desired device; if that fails (e.g., cuDNN mismatch), explicitly fallback to CPU
     try:
         diar_pipeline.to(torch.device(DEVICE))
-        logger.info(f"Moved diarization pipeline to {DEVICE}")
+        logger.info(f"✅ Moved diarization pipeline to {DEVICE}")
     except Exception as e:
-        logger.warning(f"Could not move diarization pipeline to {DEVICE}: {e}")
+        logger.warning(f"⚠️ Could not move diarization pipeline to {DEVICE}: {e}")
         try:
             diar_pipeline.to(torch.device("cpu"))
-            logger.info("Moved diarization pipeline to cpu as a fallback")
+            logger.info("⚠️ Moved diarization pipeline to cpu as a fallback")
         except Exception as e2:
-            logger.warning(f"Could not move diarization pipeline to cpu: {e2}; disabling diarization")
+            logger.warning(f"❌ Could not move diarization pipeline to cpu: {e2}; disabling diarization")
             return None
 
-    logger.info("Diarization pipeline loaded.")
+    logger.info("✅ Diarization pipeline loaded.")
     return diar_pipeline
 
 
@@ -152,7 +152,7 @@ def _log_gpu_stats(prefix: str = ""):
             dev = torch.cuda.current_device()
             mem_alloc = torch.cuda.memory_allocated(dev)
             mem_reserved = torch.cuda.memory_reserved(dev)
-            logger.info(f"{prefix} torch.cuda available: device={dev}, allocated={mem_alloc}, reserved={mem_reserved}, device_count={torch.cuda.device_count()}, cuda_version={torch.version.cuda}")
+            logger.info(f"📊 {prefix} torch.cuda available: device={dev}, allocated={mem_alloc}, reserved={mem_reserved}, device_count={torch.cuda.device_count()}, cuda_version={torch.version.cuda}")
             # run a short nvidia-smi query for host-level metrics
             try:
                 out = subprocess.check_output([
@@ -160,33 +160,33 @@ def _log_gpu_stats(prefix: str = ""):
                     "--query-gpu=index,name,utilization.gpu,memory.used",
                     "--format=csv,noheader,nounits",
                 ], text=True, stderr=subprocess.DEVNULL)
-                logger.info(f"{prefix} nvidia-smi: {out.strip()}")
+                logger.info(f"📊 {prefix} nvidia-smi: {out.strip()}")
             except Exception as e:
-                logger.debug(f"{prefix} nvidia-smi failed: {e}")
+                logger.debug(f"🔍 {prefix} nvidia-smi failed: {e}")
         else:
-            logger.info(f"{prefix} torch.cuda not available")
+            logger.info(f"ℹ️ {prefix} torch.cuda not available")
     except Exception as e:
-        logger.warning(f"{prefix} Could not log GPU stats: {e}")
+        logger.warning(f"⚠️ {prefix} Could not log GPU stats: {e}")
 
 
 def _dump_all_thread_traces(prefix: str = ""):
     """Dump stack traces for all threads and a small faulthandler dump for post-mortem."""
     try:
-        logger.warning(f"{prefix} Dumping all thread stacks")
+        logger.warning(f"⚠️ {prefix} Dumping all thread stacks")
         for tid, frame in sys._current_frames().items():
-            logger.warning(f"Thread {tid} stack:\n" + "\n".join(traceback.format_stack(frame)))
+            logger.warning(f"⚠️ Thread {tid} stack:\n" + "\n".join(traceback.format_stack(frame)))
         # Faulthandler write to stderr - ensure it is enabled
         try:
             faulthandler.dump_traceback(all_threads=True)
         except Exception as e:
-            logger.debug(f"faulthandler.dump_traceback failed: {e}")
+            logger.debug(f"🔍 faulthandler.dump_traceback failed: {e}")
     except Exception as e:
-        logger.warning(f"{prefix} Could not dump threads: {e}")
+        logger.warning(f"⚠️ {prefix} Could not dump threads: {e}")
 
 
 def _signal_handler(signum, frame):
     try:
-        logger.error(f"Received signal {signum}; dumping traces before exit")
+        logger.error(f"❌ Received signal {signum}; dumping traces before exit")
         _dump_all_thread_traces(prefix=f"signal {signum}")
     finally:
         # Re-raise the signal default to allow normal termination
@@ -205,14 +205,14 @@ def _install_crash_handlers():
                 logger.debug(f"Could not register handler for signal {s}: {e}")
         # Register excepthook
         def _ex_hook(exc_type, exc, tb):
-            logger.error("Uncaught exception", exc_info=(exc_type, exc, tb))
+            logger.error("❌ Uncaught exception", exc_info=(exc_type, exc, tb))
             _dump_all_thread_traces(prefix="uncaught-exception")
             # call default
             sys.__excepthook__(exc_type, exc, tb)
         sys.excepthook = _ex_hook
-        logger.info("Crash handlers installed (faulthandler + signal + excepthook)")
+        logger.info("✅ Crash handlers installed (faulthandler + signal + excepthook)")
     except Exception as e:
-        logger.warning(f"Failed to install crash handlers: {e}")
+        logger.warning(f"⚠️ Failed to install crash handlers: {e}")
 
 
 @app.get("/debug-gpu")
@@ -242,9 +242,9 @@ import uuid
 # Ensure a safe multiprocessing start method for CUDA (use 'spawn' to avoid forking issues)
 try:
     multiprocessing.set_start_method('spawn', force=False)
-    logger.info("Set multiprocessing start method to 'spawn'")
+    logger.info("✅ Set multiprocessing start method to 'spawn'")
 except RuntimeError:
-    logger.debug("Multiprocessing start method already set")
+    logger.debug("🔍 Multiprocessing start method already set")
 
 # Worker settings
 WORKER_TIMEOUT = int(os.getenv("WORKER_TIMEOUT", "1200"))  # seconds (default 20 minutes)
@@ -313,34 +313,34 @@ class InferenceWorker(multiprocessing.Process):
         except Exception:
             pass
 
-        logger.info(f"Inference worker starting (pid={os.getpid()})")
+        logger.info(f"🚀 Inference worker starting (pid={os.getpid()})")
         # Preload models in worker
         try:
             get_asr_model()
             get_diar_pipeline()
         except Exception as e:
-            logger.exception(f"Worker preloading failed: {e}")
+            logger.exception(f"❌ Worker preloading failed: {e}")
 
         while True:
             job = None
             try:
                 job = self.request_queue.get()
             except Exception as e:
-                logger.exception(f"Worker queue get failed: {e}")
+                logger.exception(f"❌ Worker queue get failed: {e}")
                 break
 
             if job is None:
-                logger.info("Worker received shutdown signal")
+                logger.info("🛑 Worker received shutdown signal")
                 break
 
             job_id, tmp_path, language, diarize, conn = job
             try:
-                logger.info(f"Worker processing job {job_id} file={tmp_path} lang={language} diarize={diarize}")
+                logger.info(f"⚙️ Worker processing job {job_id} file={tmp_path} lang={language} diarize={diarize}")
 
                 parent_child_conn, child_conn = multiprocessing.Pipe(duplex=False)
                 p = multiprocessing.Process(target=_child_process_transcribe, args=(child_conn, tmp_path, language, diarize), daemon=False)
                 p.start()
-                logger.info(f"Started child process pid={p.pid} for job {job_id}")
+                logger.info(f"🚀 Started child process pid={p.pid} for job {job_id}")
 
                 # Wait for result with timeout
                 waited = 0
@@ -353,7 +353,7 @@ class InferenceWorker(multiprocessing.Process):
                         try:
                             conn.send(("ok", payload))
                         except Exception as e:
-                            logger.warning(f"Worker failed to send response for job {job_id}: {e}")
+                            logger.warning(f"⚠️ Worker failed to send response for job {job_id}: {e}")
                     else:
                         try:
                             conn.send(("error", payload))
@@ -363,9 +363,9 @@ class InferenceWorker(multiprocessing.Process):
                     # Timeout - child is unresponsive, terminate
                     try:
                         p.terminate()
-                        logger.warning(f"Child process pid={p.pid} timed out and was terminated for job {job_id}")
+                        logger.warning(f"⚠️ Child process pid={p.pid} timed out and was terminated for job {job_id}")
                     except Exception as e:
-                        logger.exception(f"Failed to terminate child process pid={p.pid}: {e}")
+                        logger.exception(f"❌ Failed to terminate child process pid={p.pid}: {e}")
                     try:
                         conn.send(("error", "Child transcription timed out"))
                     except Exception:
@@ -375,32 +375,32 @@ class InferenceWorker(multiprocessing.Process):
                 p.join(timeout=1)
                 exitcode = getattr(p, "exitcode", None)
                 if exitcode and exitcode != 0:
-                    logger.warning(f"Child process pid={p.pid} exited with code {exitcode} for job {job_id}")
+                    logger.warning(f"⚠️ Child process pid={p.pid} exited with code {exitcode} for job {job_id}")
 
             except Exception as e:
-                logger.exception(f"Worker job {job_id} failed: {e}")
+                logger.exception(f"❌ Worker job {job_id} failed: {e}")
                 try:
                     conn.send(("error", str(e)))
                 except Exception:
                     pass
 
-        logger.info("Inference worker exiting")
+        logger.info("🛑 Inference worker exiting")
 
 
 @app.on_event("startup")
 async def startup_event():
     try:
         _install_crash_handlers()
-        logger.info(f"Process PID={os.getpid()}, thread_count={threading.active_count()}")
+        logger.info(f"ℹ️ Process PID={os.getpid()}, thread_count={threading.active_count()}")
         # Start worker process
         try:
             global _worker_request_queue, _worker_process, _monitor_stop_event
             _worker_request_queue = multiprocessing.Queue()
             _worker_process = InferenceWorker(_worker_request_queue)
             _worker_process.start()
-            logger.info(f"Started inference worker pid={_worker_process.pid}")
+            logger.info(f"🚀 Started inference worker pid={_worker_process.pid}")
         except Exception as e:
-            logger.warning(f"Could not start inference worker: {e}")
+            logger.warning(f"⚠️ Could not start inference worker: {e}")
 
         # Start monitor thread to keep worker alive (attempt restarts)
         try:
@@ -413,35 +413,35 @@ async def startup_event():
                         global _worker_request_queue, _worker_process
                         if _worker_process is None or not _worker_process.is_alive():
                             exitcode = getattr(_worker_process, "exitcode", None)
-                            logger.warning(f"Inference worker not alive; exitcode={exitcode}; attempting restart")
+                            logger.warning(f"⚠️ Inference worker not alive; exitcode={exitcode}; attempting restart")
                             try:
                                 # recreate queue and worker
                                 _worker_request_queue = multiprocessing.Queue()
                                 _worker_process = InferenceWorker(_worker_request_queue)
                                 _worker_process.start()
-                                logger.info(f"Restarted inference worker pid={_worker_process.pid}")
+                                logger.info(f"🚀 Restarted inference worker pid={_worker_process.pid}")
                                 backoff = 1
                             except Exception as e:
-                                logger.exception(f"Failed to restart worker: {e}")
+                                logger.exception(f"❌ Failed to restart worker: {e}")
                                 time.sleep(backoff)
                                 backoff = min(backoff * 2, 60)
                         else:
                             backoff = 1
                     except Exception as e:
-                        logger.exception(f"Worker monitor error: {e}")
+                        logger.exception(f"❌ Worker monitor error: {e}")
                     # Poll interval
                     _monitor_stop_event.wait(5)
 
             thr = threading.Thread(target=_monitor, daemon=True)
             thr.start()
-            logger.info("Started inference worker monitor thread")
+            logger.info("✅ Started inference worker monitor thread")
         except Exception as e:
-            logger.warning(f"Could not start worker monitor: {e}")
+            logger.warning(f"⚠️ Could not start worker monitor: {e}")
 
         # NOTE: we avoid preloading heavy models in the main process to reduce memory pressure.
         # The inference worker preloads models and handles requests; a local fallback will load models on-demand if necessary.
     except Exception as e:
-        logger.warning(f"Could not preload models: {e}")
+        logger.warning(f"⚠️ Could not preload models: {e}")
 
 
 def assign_segment_speaker(seg_start: float, seg_end: float, turns: List[Dict[str, Any]]) -> Optional[str]:
@@ -474,11 +474,11 @@ def _do_transcribe_impl(tmp_path: str, language: Optional[str], diarize: bool):
         language=language,
     )
     t1 = time.time()
-    logger.info(f"ASR complete: duration={t1-t0:.2f}s")
+    logger.info(f"✅ ASR complete: duration={t1-t0:.2f}s")
     _log_gpu_stats("after ASR")
 
     # 2) Alignment (word timestamps)
-    logger.info("Aligning...")
+    logger.info("⏳ Aligning...")
     _log_gpu_stats("before alignment")
     model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=DEVICE)
     aligned = whisperx.align(
@@ -503,13 +503,13 @@ def _do_transcribe_impl(tmp_path: str, language: Optional[str], diarize: bool):
     if diarize:
         pipeline = get_diar_pipeline()
         if pipeline is not None:
-            logger.info("Diarizing...")
+            logger.info("🗣️ Diarizing...")
             _log_gpu_stats("before diarization")
             t_d0 = time.time()
             diar = pipeline(tmp_path)
             t_d1 = time.time()
             _log_gpu_stats("after diarization")
-            logger.info(f"Diarization complete: duration={t_d1-t_d0:.2f}s")
+            logger.info(f"✅ Diarization complete: duration={t_d1-t_d0:.2f}s")
             for turn, _, speaker in diar.itertracks(yield_label=True):
                 turns.append({"start": float(turn.start), "end": float(turn.end), "speaker": str(speaker)})
 
@@ -561,16 +561,16 @@ async def transcribe(
     # Accept either 'client_job_id' or legacy 'job_id' from clients
     client_job_id = client_job_id or job_id
     if not client_job_id:
-        logger.warning("No client_job_id received for transcribe request; chunk serialization disabled")
+        logger.warning("⚠️ No client_job_id received for transcribe request; chunk serialization disabled")
     tmp_path = None
     lock = None
     try:
         # If client provided a job id, serialize requests for that job to ensure chunk-by-chunk processing
         if client_job_id:
             lock = job_locks.setdefault(client_job_id, asyncio.Lock())
-            logger.info(f"Waiting on lock for client_job_id={client_job_id} chunk={chunk_index}")
+            logger.info(f"⏳ Waiting on lock for client_job_id={client_job_id} chunk={chunk_index}")
             await lock.acquire()
-            logger.info(f"Acquired lock for client_job_id={client_job_id} chunk={chunk_index}")
+            logger.info(f"🔒 Acquired lock for client_job_id={client_job_id} chunk={chunk_index}")
 
         # Save upload
         suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
@@ -578,7 +578,7 @@ async def transcribe(
             shutil.copyfileobj(file.file, tmp)
             tmp_path = tmp.name
 
-        logger.info(f"Transcribing '{file.filename}' language={language} device={DEVICE} client_job_id={client_job_id} chunk_index={chunk_index}")
+        logger.info(f"📝 Transcribing '{file.filename}' language={language} device={DEVICE} client_job_id={client_job_id} chunk_index={chunk_index}")
 
         # Try to delegate to worker if available
         try:
@@ -587,7 +587,7 @@ async def transcribe(
                 parent_conn, child_conn = multiprocessing.Pipe(duplex=False)
                 job_id = str(uuid.uuid4())
                 _worker_request_queue.put((job_id, tmp_path, language, diarize, child_conn))
-                logger.info(f"Delegated job {job_id} to worker pid={_worker_process.pid}")
+                logger.info(f"📤 Delegated job {job_id} to worker pid={_worker_process.pid}")
                 if parent_conn.poll(WORKER_TIMEOUT):
                     status, payload = parent_conn.recv()
                     if status == "ok":
@@ -597,7 +597,7 @@ async def transcribe(
                 else:
                     raise Exception("Worker timeout")
         except Exception as e:
-            logger.warning(f"Worker path failed or unavailable: {e}; falling back to local inference")
+            logger.warning(f"⚠️ Worker path failed or unavailable: {e}; falling back to local inference")
 
         # Local (in-process) inference fallback
         res = _do_transcribe_impl(tmp_path, language, diarize)
@@ -606,7 +606,7 @@ async def transcribe(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Transcription error: {e}")
+        logger.exception(f"❌ Transcription error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if tmp_path and os.path.exists(tmp_path):
@@ -618,7 +618,7 @@ async def transcribe(
         if lock is not None:
             try:
                 lock.release()
-                logger.info(f"Released lock for client_job_id={client_job_id} chunk={chunk_index}")
+                logger.info(f"🔓 Released lock for client_job_id={client_job_id} chunk={chunk_index}")
             except Exception:
                 pass
             try:
@@ -683,7 +683,7 @@ async def diarize_endpoint(
             raise Exception("Diarization timeout")
 
     except Exception as e:
-        logger.exception(f"Diarization error: {e}")
+        logger.exception(f"❌ Diarization error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if tmp_path and os.path.exists(tmp_path):
@@ -713,4 +713,4 @@ async def shutdown_event():
             except Exception:
                 pass
     except Exception as e:
-        logger.warning(f"Error during shutdown: {e}")
+        logger.warning(f"⚠️ Error during shutdown: {e}")

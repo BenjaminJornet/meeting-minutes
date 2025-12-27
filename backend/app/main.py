@@ -156,22 +156,22 @@ class SummaryProcessor:
                 overlap=overlap,
                 custom_prompt=custom_prompt
             )
-            logger.info(f"Successfully processed transcript into {num_chunks} chunks")
+            logger.info(f"✅ Successfully processed transcript into {num_chunks} chunks")
 
             return num_chunks, all_json_data
         except Exception as e:
-            logger.error(f"Error processing transcript: {str(e)}", exc_info=True)
+            logger.error(f"❌ Error processing transcript: {str(e)}", exc_info=True)
             raise
 
     def cleanup(self):
         """Cleanup resources"""
         try:
-            logger.info("Cleaning up resources")
+            logger.info("🧹 Cleaning up resources")
             if hasattr(self, 'transcript_processor'):
                 self.transcript_processor.cleanup()
-            logger.info("Cleanup completed successfully")
+            logger.info("✅ Cleanup completed successfully")
         except Exception as e:
-            logger.error(f"Error during cleanup: {str(e)}", exc_info=True)
+            logger.error(f"❌ Error during cleanup: {str(e)}", exc_info=True)
 
 # Initialize processor
 processor = SummaryProcessor()
@@ -184,7 +184,7 @@ async def get_meetings():
         meetings = await db.get_all_meetings()
         return [{"id": meeting["id"], "title": meeting["title"]} for meeting in meetings]
     except Exception as e:
-        logger.error(f"Error getting meetings: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error getting meetings: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/get-meeting/{meeting_id}", response_model=MeetingDetailsResponse)
@@ -198,7 +198,7 @@ async def get_meeting(meeting_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting meeting: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error getting meeting: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/save-meeting-title")
@@ -208,7 +208,7 @@ async def save_meeting_title(data: MeetingTitleUpdate):
         await db.update_meeting_title(data.meeting_id, data.title)
         return {"message": "Meeting title saved successfully"}
     except Exception as e:
-        logger.error(f"Error saving meeting title: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error saving meeting title: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/delete-meeting")
@@ -221,13 +221,13 @@ async def delete_meeting(data: DeleteMeetingRequest):
         else:
             raise HTTPException(status_code=500, detail="Failed to delete meeting")
     except Exception as e:
-        logger.error(f"Error deleting meeting: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error deleting meeting: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 async def process_transcript_background(process_id: str, transcript: TranscriptRequest, custom_prompt: str):
     """Background task to process transcript"""
     try:
-        logger.info(f"Starting background processing for process_id: {process_id}")
+        logger.info(f"🚀 Starting background processing for process_id: {process_id}")
         
         # Early validation for common issues
         if not transcript.text or not transcript.text.strip():
@@ -300,9 +300,9 @@ async def process_transcript_background(process_id: str, transcript: TranscriptR
                                     "blocks": json_dict[key]["blocks"].copy() if json_dict[key]["blocks"] else []
                                 })
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON chunk for {process_id}: {e}. Chunk: {json_str[:100]}...")
+                logger.error(f"❌ Failed to parse JSON chunk for {process_id}: {e}. Chunk: {json_str[:100]}...")
             except Exception as e:
-                logger.error(f"Error processing chunk data for {process_id}: {e}. Chunk: {json_str[:100]}...")
+                logger.error(f"❌ Error processing chunk data for {process_id}: {e}. Chunk: {json_str[:100]}...")
 
         # Update database with meeting name using meeting_id
         if final_summary["MeetingName"]:
@@ -311,28 +311,28 @@ async def process_transcript_background(process_id: str, transcript: TranscriptR
         # Save final result
         if all_json_data:
             await processor.db.update_process(process_id, status="completed", result=json.dumps(final_summary))
-            logger.info(f"Background processing completed for process_id: {process_id}")
+            logger.info(f"✅ Background processing completed for process_id: {process_id}")
         else:
             error_msg = "Summary generation failed: No chunks were processed successfully. Check logs for specific errors."
             await processor.db.update_process(process_id, status="failed", error=error_msg)
-            logger.error(f"Background processing failed for process_id: {process_id} - {error_msg}")
+            logger.error(f"❌ Background processing failed for process_id: {process_id} - {error_msg}")
 
     except ValueError as e:
         # Handle specific value errors (like API key issues)
         error_msg = str(e)
-        logger.error(f"Configuration error in background processing for {process_id}: {error_msg}", exc_info=True)
+        logger.error(f"❌ Configuration error in background processing for {process_id}: {error_msg}", exc_info=True)
         try:
             await processor.db.update_process(process_id, status="failed", error=error_msg)
         except Exception as db_e:
-            logger.error(f"Failed to update DB status to failed for {process_id}: {db_e}", exc_info=True)
+            logger.error(f"❌ Failed to update DB status to failed for {process_id}: {db_e}", exc_info=True)
     except Exception as e:
         # Handle all other exceptions
         error_msg = f"Processing error: {str(e)}"
-        logger.error(f"Error in background processing for {process_id}: {error_msg}", exc_info=True)
+        logger.error(f"❌ Error in background processing for {process_id}: {error_msg}", exc_info=True)
         try:
             await processor.db.update_process(process_id, status="failed", error=error_msg)
         except Exception as db_e:
-            logger.error(f"Failed to update DB status to failed for {process_id}: {db_e}", exc_info=True)
+            logger.error(f"❌ Failed to update DB status to failed for {process_id}: {db_e}", exc_info=True)
 
 @app.post("/process-transcript")
 async def process_transcript_api(
@@ -370,7 +370,7 @@ async def process_transcript_api(
         })
 
     except Exception as e:
-        logger.error(f"Error in process_transcript_api: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error in process_transcript_api: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/get-summary/{meeting_id}")
@@ -393,7 +393,7 @@ async def get_summary(meeting_id: str):
             )
 
         status = result.get("status", "unknown").lower()
-        logger.debug(f"Summary status for meeting {meeting_id}: {status}, error: {result.get('error')}")
+        logger.debug(f"🔍 Summary status for meeting {meeting_id}: {status}, error: {result.get('error')}")
 
         # Parse result data if available
         summary_data = None
@@ -405,14 +405,14 @@ async def get_summary(meeting_id: str):
                 else:
                     summary_data = parsed_result
                 if not isinstance(summary_data, dict):
-                    logger.error(f"Parsed summary data is not a dictionary for meeting {meeting_id}")
+                    logger.error(f"❌ Parsed summary data is not a dictionary for meeting {meeting_id}")
                     summary_data = None
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON data for meeting {meeting_id}: {str(e)}")
+                logger.error(f"❌ Failed to parse JSON data for meeting {meeting_id}: {str(e)}")
                 status = "failed"
                 result["error"] = f"Invalid summary data format: {str(e)}"
             except Exception as e:
-                logger.error(f"Unexpected error parsing summary data for {meeting_id}: {str(e)}")
+                logger.error(f"❌ Unexpected error parsing summary data for {meeting_id}: {str(e)}")
                 status = "failed"
                 result["error"] = f"Error processing summary data: {str(e)}"
 
@@ -478,7 +478,7 @@ async def get_summary(meeting_id: str):
             response["error"] = result.get("error", "Unknown processing error")
             response["data"] = None
             response["meetingName"] = None
-            logger.info(f"Returning failed status with error: {response['error']}")
+            logger.info(f"ℹ️ Returning failed status with error: {response['error']}")
             return JSONResponse(status_code=400, content=response)
 
         elif status in ["processing", "pending", "started"]:
@@ -502,7 +502,7 @@ async def get_summary(meeting_id: str):
             return JSONResponse(status_code=500, content=response)
 
     except Exception as e:
-        logger.error(f"Error getting summary for {meeting_id}: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error getting summary for {meeting_id}: {str(e)}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={
@@ -520,13 +520,13 @@ async def get_summary(meeting_id: str):
 async def save_transcript(request: SaveTranscriptRequest):
     """Save transcript segments for a meeting without processing"""
     try:
-        logger.info(f"Received save-transcript request for meeting: {request.meeting_title}")
-        logger.info(f"Number of transcripts to save: {len(request.transcripts)}")
+        logger.info(f"💾 Received save-transcript request for meeting: {request.meeting_title}")
+        logger.info(f"📊 Number of transcripts to save: {len(request.transcripts)}")
 
         # Log first transcript timestamps for debugging
         if request.transcripts:
             first = request.transcripts[0]
-            logger.debug(f"First transcript: audio_start_time={first.audio_start_time}, audio_end_time={first.audio_end_time}, duration={first.duration}")
+            logger.debug(f"🔍 First transcript: audio_start_time={first.audio_start_time}, audio_end_time={first.audio_end_time}, duration={first.duration}")
 
         # Generate a unique meeting ID
         meeting_id = f"meeting-{int(time.time() * 1000)}"
@@ -549,10 +549,10 @@ async def save_transcript(request: SaveTranscriptRequest):
                 duration=transcript.duration
             )
 
-        logger.info("Transcripts saved successfully")
+        logger.info("✅ Transcripts saved successfully")
         return {"status": "success", "message": "Transcript saved successfully", "meeting_id": meeting_id}
     except Exception as e:
-        logger.error(f"Error saving transcript: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error saving transcript: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/get-model-config")
@@ -619,10 +619,10 @@ async def save_meeting_summary(data: MeetingSummaryUpdate):
         await db.update_meeting_summary(data.meeting_id, data.summary)
         return {"message": "Meeting summary saved successfully"}
     except ValueError as ve:
-        logger.error(f"Value error saving meeting summary: {str(ve)}")
+        logger.error(f"❌ Value error saving meeting summary: {str(ve)}")
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
-        logger.error(f"Error saving meeting summary: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error saving meeting summary: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 class SearchRequest(BaseModel):
@@ -635,18 +635,18 @@ async def search_transcripts(request: SearchRequest):
         results = await db.search_transcripts(request.query)
         return JSONResponse(content=results)
     except Exception as e:
-        logger.error(f"Error searching transcripts: {str(e)}")
+        logger.error(f"❌ Error searching transcripts: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on API shutdown"""
-    logger.info("API shutting down, cleaning up resources")
+    logger.info("🛑 API shutting down, cleaning up resources")
     try:
         processor.cleanup()
-        logger.info("Successfully cleaned up resources")
+        logger.info("✅ Successfully cleaned up resources")
     except Exception as e:
-        logger.error(f"Error during cleanup: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error during cleanup: {str(e)}", exc_info=True)
 
 # --- Enhanced Transcription Endpoints ---
 
@@ -671,13 +671,13 @@ async def start_enhanced_transcription(
         with open(saved_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        logger.info(f"Saved upload to {saved_path}")
+        logger.info(f"💾 Saved upload to {saved_path}")
 
         # Start the enhanced transcription job using the persisted file
         job_id = await enhanced_manager.start_job(saved_path, language)
         return {"job_id": job_id, "status": "processing", "file": saved_filename}
     except Exception as e:
-        logger.error(f"Failed to start enhanced transcription: {e}")
+        logger.error(f"❌ Failed to start enhanced transcription: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/enhanced-transcribe/{job_id}")

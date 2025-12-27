@@ -81,7 +81,7 @@ class TranscriptProcessor:
     """Handles the processing of meeting transcripts using AI models."""
     def __init__(self):
         """Initialize the transcript processor."""
-        logger.info("TranscriptProcessor initialized.")
+        logger.info("🚀 TranscriptProcessor initialized.")
         self.db = DatabaseManager()
         self.active_clients = []  # Track active Ollama client sessions
     async def process_transcript(self, text: str, model: str, model_name: str, chunk_size: int = 5000, overlap: int = 1000, custom_prompt: str = "") -> Tuple[int, List[str]]:
@@ -102,7 +102,7 @@ class TranscriptProcessor:
             - A list of JSON strings, where each string is the summary of a chunk.
         """
 
-        logger.info(f"Processing transcript (length {len(text)}) with model provider={model}, model_name={model_name}, chunk_size={chunk_size}, overlap={overlap}")
+        logger.info(f"⚙️ Processing transcript (length {len(text)}) with model provider={model}, model_name={model_name}, chunk_size={chunk_size}, overlap={overlap}")
 
         all_json_data = []
         agent = None # Define agent variable
@@ -114,7 +114,7 @@ class TranscriptProcessor:
                 api_key = await db.get_api_key("claude")
                 if not api_key: raise ValueError("ANTHROPIC_API_KEY environment variable not set")
                 llm = AnthropicModel(model_name, provider=AnthropicProvider(api_key=api_key))
-                logger.info(f"Using Claude model: {model_name}")
+                logger.info(f"🤖 Using Claude model: {model_name}")
             elif model == "ollama":
                 # Use environment variable for Ollama host configuration
                 ollama_host = os.getenv('OLLAMA_HOST', 'http://localhost:11434')
@@ -129,21 +129,21 @@ class TranscriptProcessor:
                 else:
                     chunk_size = 30000
                     overlap = 1000
-                logger.info(f"Using Ollama model: {model_name}")
+                logger.info(f"🤖 Using Ollama model: {model_name}")
             elif model == "groq":
                 api_key = await db.get_api_key("groq")
                 if not api_key: raise ValueError("GROQ_API_KEY environment variable not set")
                 llm = GroqModel(model_name, provider=GroqProvider(api_key=api_key))
-                logger.info(f"Using Groq model: {model_name}")
+                logger.info(f"🤖 Using Groq model: {model_name}")
             # --- ADD OPENAI SUPPORT HERE ---
             elif model == "openai":
                 api_key = await db.get_api_key("openai")
                 if not api_key: raise ValueError("OPENAI_API_KEY environment variable not set")
                 llm = OpenAIModel(model_name, provider=OpenAIProvider(api_key=api_key))
-                logger.info(f"Using OpenAI model: {model_name}")
+                logger.info(f"🤖 Using OpenAI model: {model_name}")
             # --- END OPENAI SUPPORT ---
             else:
-                logger.error(f"Unsupported model provider requested: {model}")
+                logger.error(f"❌ Unsupported model provider requested: {model}")
                 raise ValueError(f"Unsupported model provider: {model}")
 
             # Initialize the agent with the selected LLM
@@ -152,21 +152,21 @@ class TranscriptProcessor:
                 result_type=SummaryResponse,
                 result_retries=2,
             )
-            logger.info("Pydantic-AI Agent initialized.")
+            logger.info("✅ Pydantic-AI Agent initialized.")
 
             # Split transcript into chunks
             step = chunk_size - overlap
             if step <= 0:
-                logger.warning(f"Overlap ({overlap}) >= chunk_size ({chunk_size}). Adjusting overlap.")
+                logger.warning(f"⚠️ Overlap ({overlap}) >= chunk_size ({chunk_size}). Adjusting overlap.")
                 overlap = max(0, chunk_size - 100)
                 step = chunk_size - overlap
 
             chunks = [text[i:i+chunk_size] for i in range(0, len(text), step)]
             num_chunks = len(chunks)
-            logger.info(f"Split transcript into {num_chunks} chunks.")
+            logger.info(f"✂️ Split transcript into {num_chunks} chunks.")
 
             for i, chunk in enumerate(chunks):
-                logger.info(f"Processing chunk {i+1}/{num_chunks}...")
+                logger.info(f"🔄 Processing chunk {i+1}/{num_chunks}...")
                 try:
                     # Run the agent to get the structured summary for the chunk
                     if model != "ollama":
@@ -196,7 +196,7 @@ class TranscriptProcessor:
                         """,
                     )
                     else:
-                        logger.info(f"Using Ollama model: {model_name} and chunk size: {chunk_size} with overlap: {overlap}")
+                        logger.info(f"🤖 Using Ollama model: {model_name} and chunk size: {chunk_size} with overlap: {overlap}")
                         response = await self.chat_ollama_model(model_name, chunk, custom_prompt)
                         
                         # Check if response is already a SummaryResponse object or a string that needs validation
@@ -206,30 +206,30 @@ class TranscriptProcessor:
                             # If it's a string (JSON), validate it
                             summary_result = SummaryResponse.model_validate_json(response)
                             
-                        logger.info(f"Summary result for chunk {i+1}: {summary_result}")
-                        logger.info(f"Summary result type for chunk {i+1}: {type(summary_result)}")
+                        logger.info(f"📊 Summary result for chunk {i+1}: {summary_result}")
+                        logger.info(f"📊 Summary result type for chunk {i+1}: {type(summary_result)}")
 
                     if hasattr(summary_result, 'data') and isinstance(summary_result.data, SummaryResponse):
                          final_summary_pydantic = summary_result.data
                     elif isinstance(summary_result, SummaryResponse):
                          final_summary_pydantic = summary_result
                     else:
-                         logger.error(f"Unexpected result type from agent for chunk {i+1}: {type(summary_result)}")
+                         logger.error(f"❌ Unexpected result type from agent for chunk {i+1}: {type(summary_result)}")
                          continue # Skip this chunk
 
                     # Convert the Pydantic model to a JSON string
                     chunk_summary_json = final_summary_pydantic.model_dump_json()
                     all_json_data.append(chunk_summary_json)
-                    logger.info(f"Successfully generated summary for chunk {i+1}.")
+                    logger.info(f"✅ Successfully generated summary for chunk {i+1}.")
 
                 except Exception as chunk_error:
-                    logger.error(f"Error processing chunk {i+1}: {chunk_error}", exc_info=True)
+                    logger.error(f"❌ Error processing chunk {i+1}: {chunk_error}", exc_info=True)
 
-            logger.info(f"Finished processing all {num_chunks} chunks.")
+            logger.info(f"🏁 Finished processing all {num_chunks} chunks.")
             return num_chunks, all_json_data
 
         except Exception as e:
-            logger.error(f"Error during transcript processing: {str(e)}", exc_info=True)
+            logger.error(f"❌ Error during transcript processing: {str(e)}", exc_info=True)
             raise
     
     async def chat_ollama_model(self, model_name: str, transcript: str, custom_prompt: str):
@@ -276,10 +276,10 @@ class TranscriptProcessor:
                 print(f"\nError parsing response: {e}")
                 return full_response
         except asyncio.CancelledError:
-            logger.info("Ollama request was cancelled during shutdown")
+            logger.info("🛑 Ollama request was cancelled during shutdown")
             raise
         except Exception as e:
-            logger.error(f"Error in Ollama chat: {e}")
+            logger.error(f"❌ Error in Ollama chat: {e}")
             raise
         finally:
             # Remove the client from active clients list
@@ -288,16 +288,16 @@ class TranscriptProcessor:
 
     def cleanup(self):
         """Clean up resources used by the TranscriptProcessor."""
-        logger.info("Cleaning up TranscriptProcessor resources")
+        logger.info("🧹 Cleaning up TranscriptProcessor resources")
         try:
             # Close database connections if any
             if hasattr(self, 'db') and self.db is not None:
                 # self.db.close()
-                logger.info("Database connection cleanup (using context managers)")
+                logger.info("✅ Database connection cleanup (using context managers)")
                 
             # Cancel any active Ollama client sessions
             if hasattr(self, 'active_clients') and self.active_clients:
-                logger.info(f"Terminating {len(self.active_clients)} active Ollama client sessions")
+                logger.info(f"🛑 Terminating {len(self.active_clients)} active Ollama client sessions")
                 for client in self.active_clients:
                     try:
                         # Close the client's underlying connection

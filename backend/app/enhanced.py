@@ -33,7 +33,7 @@ class EnhancedTranscriptionManager:
 
     async def _process_job(self, job_id: str, file_path: str, language: str):
         try:
-            logger.info(f"Starting enhanced transcription job {job_id} for {file_path}")
+            logger.info(f"🚀 Starting enhanced transcription job {job_id} for {file_path}")
             
             # 1. Normalize Audio
             # Ensure temp dir exists
@@ -72,7 +72,7 @@ class EnhancedTranscriptionManager:
                             if resp.status_code == 200:
                                 return True
                         except Exception:
-                            logger.debug(f"Health check attempt {attempt}/{tries} to {url} failed")
+                            logger.debug(f"🔍 Health check attempt {attempt}/{tries} to {url} failed")
                         await asyncio.sleep(delay)
                     return False
 
@@ -94,22 +94,22 @@ class EnhancedTranscriptionManager:
                                     except Exception:
                                         pass
                                     files_payload = {files_field_name: (f"chunk_{idx}.wav", fobj, "audio/wav")}
-                                    logger.debug(f"POST attempt {attempt}/{tries} to {url} (chunk {idx})")
+                                    logger.debug(f"🔍 POST attempt {attempt}/{tries} to {url} (chunk {idx})")
                                     # add a per-request timeout so a single attempt doesn't block for extremely long
                                     resp = await client.post(url, files=files_payload, data=data, timeout=300.0)
                                     resp.raise_for_status()
-                                    logger.info(f"POST attempt {attempt}/{tries} to {url} succeeded (chunk {idx}) status={resp.status_code}")
+                                    logger.info(f"✅ POST attempt {attempt}/{tries} to {url} succeeded (chunk {idx}) status={resp.status_code}")
                                     try:
                                         json_resp = resp.json()
-                                        logger.debug(f"Response JSON from {url} (chunk {idx}): {json_resp}")
+                                        logger.debug(f"🔍 Response JSON from {url} (chunk {idx}): {json_resp}")
                                     except Exception:
-                                        logger.debug(f"Response text from {url} (chunk {idx}): {resp.text}")
+                                        logger.debug(f"🔍 Response text from {url} (chunk {idx}): {resp.text}")
                                         # fallback to empty dict when response is not JSON parsable
                                         json_resp = {}
                                     return json_resp
                                 except Exception as e:
                                     last_exc = e
-                                    logger.warning(f"POST attempt {attempt} to {url} failed for chunk {idx}: {e}")
+                                    logger.warning(f"⚠️ POST attempt {attempt} to {url} failed for chunk {idx}: {e}")
                                     # backoff (simple)
                                     await asyncio.sleep(1 * attempt)
                             # All attempts failed
@@ -128,19 +128,19 @@ class EnhancedTranscriptionManager:
                             # If service is restarting, wait a little longer before sending the first chunk
                             enh_healthy = await _wait_for_health(client, enh_health_url, tries=10, delay=1.0)
                             if not enh_healthy:
-                                logger.warning("Enhanced ASR health check did not succeed before sending chunk; skipping direct post to enhanced-asr and using whisper-server fallback to avoid hangs (waited 10 attempts)")
+                                logger.warning("⚠️ Enhanced ASR health check did not succeed before sending chunk; skipping direct post to enhanced-asr and using whisper-server fallback to avoid hangs (waited 10 attempts)")
 
                             # If enhanced-asr appears healthy, try it first; otherwise skip to whisper fallback
                             if enh_healthy:
                                 try:
-                                    logger.info(f"Sending chunk {idx+1}/{total_chunks} to enhanced-asr (job={job_id} chunk={idx})")
+                                    logger.info(f"📤 Sending chunk {idx+1}/{total_chunks} to enhanced-asr (job={job_id} chunk={idx})")
                                     result = await _post_with_retries(f"{ENHANCED_ASR_URL}/transcribe", f, data=data, tries=3)
                                 except Exception as e_enh:
-                                    logger.warning(f"Enhanced ASR failed for chunk {idx} (exception type={type(e_enh).__name__}): {repr(e_enh)}. Will try whisper-server fallback...")
+                                    logger.warning(f"⚠️ Enhanced ASR failed for chunk {idx} (exception type={type(e_enh).__name__}): {repr(e_enh)}. Will try whisper-server fallback...")
                                     # fallthrough to whisper fallback below
                             # If not healthy or enhanced-asr failed, fallback to whisper-server
                             if (not enh_healthy) or (result is None):
-                                    logger.info(f"Falling back to whisper-server for chunk {idx}")
+                                    logger.info(f"🔄 Falling back to whisper-server for chunk {idx}")
                                     # Fallback to whisper-server: prefer /inference, but handle ConnectError vs HTTP 404 intelligently
                                     whisper_endpoints = [f"{WHISPER_SERVER_URL}/inference", f"{WHISPER_SERVER_URL}/transcribe"]
                                     result = None
@@ -159,46 +159,46 @@ class EnhancedTranscriptionManager:
 
                                     # Pre-check whisper server health once (gives faster path for transient restarts)
                                     if not await _wait_whisper(WHISPER_SERVER_URL, tries=3, delay=1.0):
-                                        logger.warning("Whisper server health check did not succeed before fallback; it may be restarting")
+                                        logger.warning("⚠️ Whisper server health check did not succeed before fallback; it may be restarting")
 
                                     for ep in whisper_endpoints:
                                         try:
-                                            logger.info(f"Trying whisper-server fallback endpoint {ep} for chunk {idx}")
+                                            logger.info(f"🔄 Trying whisper-server fallback endpoint {ep} for chunk {idx}")
                                             result = await _post_with_retries(ep, f, data=data, tries=2)
-                                            logger.info(f"Fallback to whisper-server succeeded for chunk {idx} via {ep}")
+                                            logger.info(f"✅ Fallback to whisper-server succeeded for chunk {idx} via {ep}")
                                             break
 
                                         except httpx.HTTPStatusError as he:
                                             # If endpoint returns 404, it simply does not exist — try the next one
                                             if he.response is not None and he.response.status_code == 404:
                                                 last_exc = he
-                                                logger.warning(f"Endpoint {ep} returned 404; skipping to next endpoint")
+                                                logger.warning(f"⚠️ Endpoint {ep} returned 404; skipping to next endpoint")
                                                 continue
                                             last_exc = he
-                                            logger.warning(f"HTTP status error for {ep}: {he}")
+                                            logger.warning(f"⚠️ HTTP status error for {ep}: {he}")
 
                                         except httpx.ConnectError as ce:
                                             # Cannot connect to whisper server — wait briefly and retry once after health check
                                             last_exc = ce
-                                            logger.warning(f"Connect error to {ep}: {ce}; will wait and retry after health check")
+                                            logger.warning(f"⚠️ Connect error to {ep}: {ce}; will wait and retry after health check")
                                             if not await _wait_whisper(WHISPER_SERVER_URL, tries=3, delay=1.0):
-                                                logger.debug("Whisper server still unhealthy after wait; moving to next endpoint")
+                                                logger.debug("🔍 Whisper server still unhealthy after wait; moving to next endpoint")
                                                 continue
                                             # Try one retry
                                             try:
                                                 result = await _post_with_retries(ep, f, data=data, tries=1)
-                                                logger.info(f"Fallback to whisper-server succeeded for chunk {idx} via {ep} (after reconnect)")
+                                                logger.info(f"✅ Fallback to whisper-server succeeded for chunk {idx} via {ep} (after reconnect)")
                                                 break
                                             except Exception as e_retry:
                                                 last_exc = e_retry
-                                                logger.warning(f"Retry to {ep} failed: {e_retry}")
+                                                logger.warning(f"⚠️ Retry to {ep} failed: {e_retry}")
 
                                         except Exception as e_w:
                                             last_exc = e_w
-                                            logger.warning(f"Fallback attempt to {ep} failed for chunk {idx}: {e_w}")
+                                            logger.warning(f"⚠️ Fallback attempt to {ep} failed for chunk {idx}: {e_w}")
 
                                     if result is None:
-                                        logger.error(f"All endpoints failed for chunk {idx}: {last_exc}")
+                                        logger.error(f"❌ All endpoints failed for chunk {idx}: {last_exc}")
                                         # Re-raise to mark job as failed
                                         raise last_exc
                         # Process segments
@@ -230,7 +230,7 @@ class EnhancedTranscriptionManager:
                 # Use a fresh HTTP client for the diarization request (the earlier `client` might have been closed)
                 async with httpx.AsyncClient(timeout=600.0) as diar_client:
                     with open(file_path, "rb") as fdiar:
-                        logger.info(f"Requesting diarization for job {job_id}")
+                        logger.info(f"🗣️ Requesting diarization for job {job_id}")
                         resp = await diar_client.post(
                             f"{ENHANCED_ASR_URL}/diarize",
                             files={"file": (os.path.basename(file_path), fdiar, "audio/wav")},
@@ -241,7 +241,7 @@ class EnhancedTranscriptionManager:
 
                         # Some error payloads may be returned as {"error": "..."}
                         if isinstance(diar_json, dict) and diar_json.get("error"):
-                            logger.warning(f"Diarization endpoint returned error for job {job_id}: {diar_json.get('error')}")
+                            logger.warning(f"⚠️ Diarization endpoint returned error for job {job_id}: {diar_json.get('error')}")
                             turns = []
                         else:
                             turns = diar_json.get("turns", []) or []
@@ -254,14 +254,14 @@ class EnhancedTranscriptionManager:
                                 with wave.open(file_path, 'rb') as wf:
                                     channels = wf.getnchannels()
                                     duration_s = wf.getnframes() / wf.getframerate()
-                                logger.info(f"Diarization returned no turns for job {job_id}; file channels={channels} duration_s={duration_s:.2f}")
+                                logger.info(f"ℹ️ Diarization returned no turns for job {job_id}; file channels={channels} duration_s={duration_s:.2f}")
                             except Exception:
-                                logger.debug("Could not read file properties for diarization diagnostics")
+                                logger.debug("🔍 Could not read file properties for diarization diagnostics")
 
                             # Attempt whisper-server fallback if configured
                             whisper_ep = f"{WHISPER_SERVER_URL}/inference"
                             try:
-                                logger.info(f"Attempting whisper-server diarization fallback for job {job_id} via {whisper_ep}")
+                                logger.info(f"🔄 Attempting whisper-server diarization fallback for job {job_id} via {whisper_ep}")
                                 with open(file_path, 'rb') as fwh:
                                     # whisper-server expects form with file and optional diarize flag
                                     wresp = await diar_client.post(whisper_ep, files={"file": (os.path.basename(file_path), fwh, "audio/wav")}, data={"diarize": "true"}, timeout=600.0)
@@ -287,12 +287,12 @@ class EnhancedTranscriptionManager:
                                             turns.append({"start": r["start"], "end": r["end"], "speaker": spk})
 
                                 if turns:
-                                    logger.info(f"Whisper-server fallback returned {len(turns)} turns for job {job_id}")
+                                    logger.info(f"✅ Whisper-server fallback returned {len(turns)} turns for job {job_id}")
                                 else:
-                                    logger.info(f"Whisper-server fallback did not return diarization turns for job {job_id}")
+                                    logger.info(f"ℹ️ Whisper-server fallback did not return diarization turns for job {job_id}")
 
                             except Exception as e_wf:
-                                logger.warning(f"Whisper-server diarization fallback failed for job {job_id}: {e_wf}")
+                                logger.warning(f"⚠️ Whisper-server diarization fallback failed for job {job_id}: {e_wf}")
 
                         if turns:
                             def assign_speaker(seg_start, seg_end, turns):
@@ -316,20 +316,28 @@ class EnhancedTranscriptionManager:
                                 seg_start = seg["start"]
                                 seg_end = seg["end"]
                                 seg["speaker"] = assign_speaker(seg_start, seg_end, turns)
-                            logger.info(f"Diarization applied for job {job_id}")
+                            logger.info(f"✅ Diarization applied for job {job_id}")
                         else:
-                            logger.info(f"No diarization turns returned for job {job_id}; speakers will remain unset.")
+                            logger.info(f"ℹ️ No diarization turns returned for job {job_id}; speakers will remain unset.")
             except Exception as e:
-                logger.warning(f"Diarization failed for job {job_id}: {e}")
+                logger.warning(f"⚠️ Diarization failed for job {job_id}: {e}")
 
             self.jobs[job_id]["status"] = "completed"
             self.jobs[job_id]["result"] = {"segments": final_segments}
-            logger.info(f"Job {job_id} completed with {len(final_segments)} segments")
+            logger.info(f"🎉 Job {job_id} completed with {len(final_segments)} segments")
             
         except Exception as e:
-            logger.error(f"Job {job_id} failed: {e}", exc_info=True)
+            logger.error(f"❌ Job {job_id} failed: {e}", exc_info=True)
             self.jobs[job_id]["status"] = "failed"
             self.jobs[job_id]["error"] = str(e)
+        finally:
+            # Cleanup the uploaded file
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    logger.info(f"🗑️ Deleted cached file: {file_path}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to delete cached file {file_path}: {e}")
 
     def _merge_segments(self, segments: List[Dict]) -> List[Dict]:
         if not segments:
