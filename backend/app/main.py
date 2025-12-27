@@ -23,6 +23,10 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+# Silence noisy libraries
+logging.getLogger("aiosqlite").setLevel(logging.INFO)
+logging.getLogger("sqlite3").setLevel(logging.INFO)
+
 # Create console handler with formatting
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.DEBUG)
@@ -656,16 +660,22 @@ async def start_enhanced_transcription(
     Returns a job_id to poll for status.
     """
     try:
-        # Ensure temp dir exists
-        os.makedirs("/tmp", exist_ok=True)
-        
-        # Save file temporarily
-        temp_filename = f"/tmp/{uuid.uuid4()}_{file.filename}"
-        with open(temp_filename, "wb") as buffer:
+        # Save uploaded file to a persistent uploads directory (configurable)
+        uploads_dir = os.getenv("UPLOADS_DIR", "/app/data/uploads")
+        os.makedirs(uploads_dir, exist_ok=True)
+
+        safe_name = os.path.basename(file.filename or "upload.wav")
+        saved_filename = f"{uuid.uuid4()}_{safe_name}"
+        saved_path = os.path.join(uploads_dir, saved_filename)
+
+        with open(saved_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-            
-        job_id = await enhanced_manager.start_job(temp_filename, language)
-        return {"job_id": job_id, "status": "processing"}
+
+        logger.info(f"Saved upload to {saved_path}")
+
+        # Start the enhanced transcription job using the persisted file
+        job_id = await enhanced_manager.start_job(saved_path, language)
+        return {"job_id": job_id, "status": "processing", "file": saved_filename}
     except Exception as e:
         logger.error(f"Failed to start enhanced transcription: {e}")
         raise HTTPException(status_code=500, detail=str(e))

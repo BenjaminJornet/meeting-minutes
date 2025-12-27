@@ -148,8 +148,22 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - WHISPER_MODEL_SIZE=large-v3
+      - TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=true
       - HF_TOKEN=${HF_TOKEN}
+      - WHISPER_MODEL_SIZE=large-v3
+      - DEVICE=cuda
+      - COMPUTE_TYPE=float16
+      - BATCH_SIZE=16
+      - WHISPERX_VAD_METHOD=silero
+      - HF_HOME=/app/cache/huggingface
+      - TORCH_HOME=/app/cache/torch
+      # Limit CPU thread usage in native libraries to avoid oversubscription
+      - OMP_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - NUMEXPR_NUM_THREADS=1
+      - TOKENIZERS_PARALLELISM=false
+    volumes:
+      - ./data/cache:/app/cache
     deploy:
       resources:
         reservations:
@@ -157,6 +171,7 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    gpus: all
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
