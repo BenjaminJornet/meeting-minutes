@@ -19,7 +19,7 @@ use crate::{
 // Server URL - configurable via MEETILY_BACKEND_URL environment variable
 // Default: http://localhost:5167 (local development)
 // Remote example: http://100.64.0.4:5167 (Tailscale IP)
-fn get_app_server_url() -> String {
+pub fn get_app_server_url() -> String {
     if let Ok(url) = env::var("MEETILY_BACKEND_URL") {
         return url;
     }

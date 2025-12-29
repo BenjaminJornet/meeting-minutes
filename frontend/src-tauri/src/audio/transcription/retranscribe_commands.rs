@@ -7,7 +7,7 @@ use log::{info, warn};
 use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::command;
+use tauri::{command, AppHandle, Emitter, Runtime};
 
 /// Result of a re-transcription operation
 #[derive(Debug, Serialize, Deserialize)]
@@ -65,7 +65,8 @@ struct Word {
 /// Re-transcribe an audio file using the remote whisper server
 /// This provides higher quality transcription using a GPU server
 #[command]
-pub async fn retranscribe_audio_file(
+pub async fn retranscribe_audio_file<R: Runtime>(
+    app: AppHandle<R>,
     audio_path: String,
     remote_url: Option<String>,
     language: Option<String>,
@@ -172,8 +173,11 @@ pub async fn retranscribe_audio_file(
     
     let mut form = Form::new().part("file", file_part);
     
-    if let Some(ref l) = language {
+    // Use provided language or fallback to env var
+    let lang_to_use = language.or_else(|| std::env::var("WHISPER_LANGUAGE").ok());
+    if let Some(ref l) = lang_to_use {
         if l != "auto" {
+            info!("🗣️ Using language: {}", l);
             form = form.text("language", l.clone());
         }
     }
@@ -236,6 +240,14 @@ pub async fn retranscribe_audio_file(
         
         info!("Job {} status: {} (progress: {:?})", job_id, status.status, status.progress);
         
+        // Emit progress event
+        let _ = app.emit("retranscribe-progress", serde_json::json!({
+            "status": "processing",
+            "message": format!("Processing... {}%", status.progress.unwrap_or(0)),
+            "progress": status.progress,
+            "job_id": job_id
+        }));
+
         if status.status == "completed" {
             if let Some(result) = status.result {
                 let json_str = serde_json::to_string(&result.segments).unwrap_or_default();
@@ -430,7 +442,8 @@ fn get_recordings_dir() -> Result<PathBuf, String> {
 
 /// Auto-retranscribe after recording stops (called from Rust, not a command)
 /// This is triggered automatically when a recording ends
-pub async fn auto_retranscribe_meeting(
+pub async fn auto_retranscribe_meeting<R: Runtime>(
+    app: AppHandle<R>,
     meeting_folder: PathBuf,
     remote_url: Option<String>,
 ) -> Result<RetranscribeResult, String> {
@@ -445,9 +458,10 @@ pub async fn auto_retranscribe_meeting(
     
     // Call the main retranscription function
     let result = retranscribe_audio_file(
+        app,
         audio_path.to_string_lossy().to_string(),
         remote_url,
-        None, // Will use MEETILY_LANGUAGE from env
+        None, // Will use MEETILY_LANGUAGE from env or fallback
     ).await?;
     
     if result.success {

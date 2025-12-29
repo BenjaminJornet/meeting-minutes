@@ -731,49 +731,49 @@ pub async fn stop_recording<R: Runtime>(
     if let Some(folder) = meeting_folder.clone() {
         let app_clone = app.clone();
         tokio::spawn(async move {
-            // Check if remote whisper is configured
-            let remote_url = std::env::var("MEETILY_WHISPER_URL").ok();
-            if let Some(url) = remote_url.filter(|u| !u.is_empty()) {
-                info!("🔄 Starting automatic re-transcription with remote whisper...");
-                
-                // Emit progress event
-                let _ = app_clone.emit("retranscribe-progress", serde_json::json!({
-                    "status": "starting",
-                    "message": "Starting improved transcription with GPU server..."
-                }));
-                
-                // Small delay to ensure audio file is fully written
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                
-                match crate::audio::transcription::auto_retranscribe_meeting(folder.clone(), Some(url)).await {
-                    Ok(result) => {
-                        if result.success {
-                            info!("✅ Auto re-transcription completed successfully");
-                            let _ = app_clone.emit("retranscribe-progress", serde_json::json!({
-                                "status": "complete",
-                                "message": "Improved transcription complete",
-                                "transcript": result.transcript,
-                                "processing_time_secs": result.processing_time_secs,
-                                "folder_path": folder.to_string_lossy().to_string()
-                            }));
-                        } else {
-                            warn!("⚠️ Auto re-transcription failed: {:?}", result.error);
-                            let _ = app_clone.emit("retranscribe-progress", serde_json::json!({
-                                "status": "error",
-                                "message": result.error.unwrap_or_else(|| "Unknown error".to_string())
-                            }));
-                        }
-                    }
-                    Err(e) => {
-                        error!("❌ Auto re-transcription error: {}", e);
+            // Use smart URL detection
+            let backend_url = crate::api::api::get_app_server_url();
+            
+            info!("🔄 Starting automatic re-transcription with backend: {}", backend_url);
+            
+            // Emit progress event
+            let _ = app_clone.emit("retranscribe-progress", serde_json::json!({
+                "status": "starting",
+                "message": "Starting improved transcription with GPU server...",
+                "folder_path": folder.to_string_lossy().to_string()
+            }));
+            
+            // Small delay to ensure audio file is fully written
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            
+            match crate::audio::transcription::auto_retranscribe_meeting(app_clone.clone(), folder.clone(), Some(backend_url)).await {
+                Ok(result) => {
+                    if result.success {
+                        info!("✅ Auto re-transcription completed successfully");
+                        let _ = app_clone.emit("retranscribe-progress", serde_json::json!({
+                            "status": "complete",
+                            "message": "Improved transcription complete",
+                            "transcript": result.transcript,
+                            "processing_time_secs": result.processing_time_secs,
+                            "folder_path": folder.to_string_lossy().to_string()
+                        }));
+                    } else {
+                        warn!("⚠️ Auto re-transcription failed: {:?}", result.error);
                         let _ = app_clone.emit("retranscribe-progress", serde_json::json!({
                             "status": "error",
-                            "message": e
+                            "message": result.error.unwrap_or_else(|| "Unknown error".to_string()),
+                            "folder_path": folder.to_string_lossy().to_string()
                         }));
                     }
                 }
-            } else {
-                info!("ℹ️ Remote whisper not configured, skipping auto re-transcription");
+                Err(e) => {
+                    error!("❌ Auto re-transcription error: {}", e);
+                    let _ = app_clone.emit("retranscribe-progress", serde_json::json!({
+                        "status": "error",
+                        "message": e.to_string(),
+                        "folder_path": folder.to_string_lossy().to_string()
+                    }));
+                }
             }
         });
     }

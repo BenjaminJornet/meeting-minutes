@@ -19,12 +19,16 @@ export default function PageContent({
   meeting,
   summaryData,
   shouldAutoGenerate = false,
+  isWaitingForEnhanced = false,
+  retranscriptionProgress = null,
   onAutoGenerateComplete,
   onMeetingUpdated
 }: {
   meeting: any;
   summaryData: Summary | null;
   shouldAutoGenerate?: boolean;
+  isWaitingForEnhanced?: boolean;
+  retranscriptionProgress?: number | null;
   onAutoGenerateComplete?: () => void;
   onMeetingUpdated?: () => Promise<void>;
 }) {
@@ -111,6 +115,8 @@ export default function PageContent({
           onOpenMeetingFolder={meetingOperations.handleOpenMeetingFolder}
           isRecording={isRecording}
           meetingFolderPath={meeting.folder_path}
+          isWaitingForEnhanced={isWaitingForEnhanced}
+          retranscriptionProgress={retranscriptionProgress}
         />
 
           <SummaryPanel

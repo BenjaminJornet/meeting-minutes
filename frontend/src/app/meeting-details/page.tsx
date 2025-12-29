@@ -29,6 +29,8 @@ function MeetingDetailsContent() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [shouldAutoGenerate, setShouldAutoGenerate] = useState<boolean>(false);
   const [hasCheckedAutoGen, setHasCheckedAutoGen] = useState<boolean>(false);
+  const [isWaitingForEnhanced, setIsWaitingForEnhanced] = useState<boolean>(false);
+  const [retranscriptionProgress, setRetranscriptionProgress] = useState<number | null>(null);
 
   // Check if gemma3:1b model is available in Ollama
   const checkForGemmaModel = useCallback(async (): Promise<boolean> => {
@@ -104,6 +106,52 @@ function MeetingDetailsContent() {
       setError("Failed to load meeting details");
     }
   }, [meetingId, setCurrentMeeting]);
+
+  // Listen for retranscription events
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    const setupListener = async () => {
+      const { listen } = await import('@tauri-apps/api/event');
+      unlisten = await listen('retranscribe-progress', (event: any) => {
+        const payload = event.payload;
+        console.log('Retranscribe event:', payload);
+
+        // Check if this event is for the current meeting
+        if (meetingDetails?.folder_path && payload.folder_path === meetingDetails.folder_path) {
+          if (payload.status === 'complete') {
+            console.log('Enhanced transcript complete, proceeding to summary...');
+            setIsWaitingForEnhanced(false);
+            setRetranscriptionProgress(null);
+            // We need to refresh meeting details to get the new transcript
+            fetchMeetingDetails().then(() => {
+              // Trigger auto-generation after refresh
+              setupAutoGeneration();
+            });
+          } else if (payload.status === 'error') {
+            console.warn('Enhanced transcript failed, proceeding with normal summary...');
+            setIsWaitingForEnhanced(false);
+            setRetranscriptionProgress(null);
+            setupAutoGeneration();
+          } else if (payload.status === 'starting') {
+            setIsWaitingForEnhanced(true);
+            setRetranscriptionProgress(0);
+          } else if (payload.status === 'progress') {
+            setIsWaitingForEnhanced(true);
+            if (typeof payload.progress === 'number') {
+              setRetranscriptionProgress(payload.progress);
+            }
+          }
+        }
+      });
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [meetingDetails, fetchMeetingDetails, setupAutoGeneration]);
 
   // Reset states when meetingId changes
   useEffect(() => {
@@ -260,15 +308,35 @@ function MeetingDetailsContent() {
         meetingSummary === null &&
         meetingDetails.transcripts &&
         meetingDetails.transcripts.length > 0 &&
-        !hasCheckedAutoGen
+        !hasCheckedAutoGen &&
+        !isWaitingForEnhanced
       ) {
+        // Check if we should wait for enhanced transcript
+        if (!meetingDetails.improved_transcript) {
+             try {
+                 const backendUrl = await invoke<string>("api_get_backend_url");
+                 // Check if meeting is recent (created within last 5 mins)
+                 const createdAt = new Date(meetingDetails.created_at);
+                 const now = new Date();
+                 const isRecent = (now.getTime() - createdAt.getTime()) < 5 * 60 * 1000;
+                 
+                 if (backendUrl && isRecent) {
+                     console.log('🚀 Recent meeting with backend configured, waiting for enhanced transcript...');
+                     setIsWaitingForEnhanced(true);
+                     return;
+                 }
+             } catch (e) {
+                 console.warn('Failed to check backend URL:', e);
+             }
+        }
+
         console.log('🚀 No summary found, checking for auto-generation...');
         await setupAutoGeneration();
       }
     };
 
     checkAutoGen();
-  }, [meetingDetails, meetingSummary, hasCheckedAutoGen, setupAutoGeneration]);
+  }, [meetingDetails, meetingSummary, hasCheckedAutoGen, setupAutoGeneration, isWaitingForEnhanced]);
 
   if (error) {
     return (
@@ -296,6 +364,8 @@ function MeetingDetailsContent() {
     meeting={meetingDetails}
     summaryData={meetingSummary}
     shouldAutoGenerate={shouldAutoGenerate}
+    isWaitingForEnhanced={isWaitingForEnhanced}
+    retranscriptionProgress={retranscriptionProgress}
     onAutoGenerateComplete={() => setShouldAutoGenerate(false)}
     onMeetingUpdated={async () => {
       // Refetch meeting details to get updated title from backend

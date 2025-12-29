@@ -13,7 +13,9 @@ fn load_env_file() {
     let possible_paths: Vec<PathBuf> = vec![
         // 1. Current directory (dev mode)
         PathBuf::from(".env"),
-        // 1b. Backend directory (dev mode / monorepo)
+        // 1b. Parent directory (frontend root)
+        PathBuf::from("../.env"),
+        // 1c. Backend directory (dev mode / monorepo)
         PathBuf::from("../../backend/.env"),
         // 2. Executable's directory (bundled app)
         std::env::current_exe()
@@ -40,7 +42,7 @@ fn load_env_file() {
             match dotenvy::from_path(&path) {
                 Ok(_) => {
                     eprintln!("✅ Loaded .env from: {:?}", path);
-                    return;
+                    // Continue to load other .env files (e.g. frontend/.env) to fill in missing vars
                 }
                 Err(e) => {
                     eprintln!("⚠️ Failed to load .env from {:?}: {}", path, e);

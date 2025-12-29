@@ -6,6 +6,7 @@ import { TranscriptView } from '@/components/TranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
 import { cn } from '@/lib/utils';
 import { EnhancedTranscriptView } from './EnhancedTranscriptView';
+import { LoaderIcon } from 'lucide-react';
 
 interface TranscriptPanelProps {
   transcripts: Transcript[];
@@ -16,6 +17,8 @@ interface TranscriptPanelProps {
   onOpenMeetingFolder: () => Promise<void>;
   isRecording: boolean;
   meetingFolderPath?: string | null;
+  isWaitingForEnhanced?: boolean;
+  retranscriptionProgress?: number | null;
 }
 
 export function TranscriptPanel({
@@ -26,7 +29,9 @@ export function TranscriptPanel({
   onCopyTranscript,
   onOpenMeetingFolder,
   isRecording,
-  meetingFolderPath
+  meetingFolderPath,
+  isWaitingForEnhanced,
+  retranscriptionProgress
 }: TranscriptPanelProps) {
   const [showImproved, setShowImproved] = useState(!!improvedTranscript);
   const hasImprovedTranscript = !!improvedTranscript && improvedTranscript.trim().length > 0;
@@ -66,6 +71,31 @@ export function TranscriptPanel({
             >
               📝 Original
             </button>
+          </div>
+        )}
+
+        {/* Progress Indicator */}
+        {isWaitingForEnhanced && (
+          <div className="mt-3 p-3 bg-blue-50 rounded-md border border-blue-100">
+            <div className="flex items-center gap-2 mb-2">
+              <LoaderIcon className="size-4 animate-spin text-blue-600" />
+              <span className="text-sm font-medium text-blue-700">
+                Enhancing transcript...
+              </span>
+              {retranscriptionProgress !== null && retranscriptionProgress !== undefined && (
+                <span className="ml-auto text-xs font-medium text-blue-600">
+                  {Math.round(retranscriptionProgress)}%
+                </span>
+              )}
+            </div>
+            {retranscriptionProgress !== null && retranscriptionProgress !== undefined && (
+              <div className="w-full bg-blue-200 rounded-full h-1.5">
+                <div 
+                  className="bg-blue-600 h-1.5 rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${Math.max(5, Math.min(100, retranscriptionProgress))}%` }}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>

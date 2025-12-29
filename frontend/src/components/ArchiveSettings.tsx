@@ -18,23 +18,27 @@ export function ArchiveSettings() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [showAll, setShowAll] = useState(false);
+
   const fetchMeetings = async () => {
     setIsLoading(true);
     try {
       const data = await invoke<ArchivableMeeting[]>('get_archivable_meetings');
-      // Filter meetings older than 1 month (approx 30 days)
-      // Or just show all for now as requested "montrant les meetings de plus de 1 mois"
-      // Let's filter client side for flexibility
-      const now = new Date();
-      const oneMonthAgo = new Date(now.setMonth(now.getMonth() - 1));
       
-      const filtered = data.filter(m => {
-        // Parse date YYYY-MM-DD
-        const mDate = new Date(m.date);
-        return mDate < oneMonthAgo;
-      });
-      
-      setMeetings(filtered);
+      if (showAll) {
+        setMeetings(data);
+      } else {
+        // Filter meetings older than 1 month (approx 30 days)
+        const now = new Date();
+        const oneMonthAgo = new Date(now.setMonth(now.getMonth() - 1));
+        
+        const filtered = data.filter(m => {
+          // Parse date YYYY-MM-DD
+          const mDate = new Date(m.date);
+          return mDate < oneMonthAgo;
+        });
+        setMeetings(filtered);
+      }
     } catch (e) {
       console.error("Failed to fetch meetings", e);
       setError("Failed to load meetings");
@@ -45,7 +49,7 @@ export function ArchiveSettings() {
 
   useEffect(() => {
     fetchMeetings();
-  }, []);
+  }, [showAll]);
 
   const handleArchive = async (meeting: ArchivableMeeting) => {
     setProcessingId(meeting.id);
@@ -92,8 +96,19 @@ export function ArchiveSettings() {
           <h2 className="text-lg font-medium text-gray-900">Archive Management</h2>
           <p className="text-sm text-gray-500">
             Archive old meetings to Nextcloud to save local disk space.
-            Only meetings older than 1 month are shown.
           </p>
+          <div className="mt-2 flex items-center gap-2">
+            <input 
+              type="checkbox" 
+              id="showAll" 
+              checked={showAll} 
+              onChange={(e) => setShowAll(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <label htmlFor="showAll" className="text-xs text-gray-600 cursor-pointer select-none">
+              Show all meetings (including recent ones)
+            </label>
+          </div>
         </div>
         <button 
           onClick={fetchMeetings} 
@@ -123,7 +138,7 @@ export function ArchiveSettings() {
         <div className="divide-y divide-gray-100 max-h-[400px] overflow-y-auto">
           {meetings.length === 0 ? (
             <div className="p-8 text-center text-gray-500 text-sm">
-              No meetings older than 1 month found.
+              {showAll ? "No meetings found." : "No meetings older than 1 month found."}
             </div>
           ) : (
             meetings.map(meeting => (
