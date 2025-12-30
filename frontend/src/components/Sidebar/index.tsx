@@ -32,6 +32,8 @@ interface SidebarItem {
   title: string;
   type: 'folder' | 'file';
   children?: SidebarItem[];
+  date?: string;
+  speakers?: string[];
 }
 
 const Sidebar: React.FC = () => {
@@ -621,6 +623,33 @@ const Sidebar: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Metadata Chips (Date & Speakers) */}
+              {isMeetingItem && (item.date || (item.speakers && item.speakers.length > 0)) && (
+                <div className="flex flex-wrap gap-1 mt-1 ml-8">
+                  {item.date && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                      {new Date(item.date).toLocaleString('fr-FR', { 
+                        day: '2-digit', 
+                        month: '2-digit', 
+                        year: 'numeric', 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                      })}
+                    </span>
+                  )}
+                  {item.speakers && item.speakers.slice(0, 3).map((speaker, idx) => (
+                    <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600 truncate max-w-[80px]">
+                      {speaker}
+                    </span>
+                  ))}
+                  {item.speakers && item.speakers.length > 3 && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-50 text-gray-500">
+                      +{item.speakers.length - 3}
+                    </span>
+                  )}
+                </div>
+              )}
               
               {/* Show transcript match snippet if available */}
               {hasTranscriptMatch && (
@@ -657,7 +686,7 @@ const Sidebar: React.FC = () => {
 
       <div 
         className={`h-screen bg-white border-r shadow-sm flex flex-col transition-all duration-300 ${
-          isCollapsed ? 'w-16' : 'w-64'
+          isCollapsed ? 'w-16' : 'w-80'
         }`}
       >
         {/* Header with traffic light spacing */}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
-import { Archive, RefreshCw, Download, HardDrive, CheckCircle, AlertCircle, FolderOpen } from 'lucide-react';
+import { Archive, RefreshCw, Download, HardDrive, CheckCircle, AlertCircle, FolderOpen, ExternalLink, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ArchivableMeeting {
@@ -10,9 +11,11 @@ interface ArchivableMeeting {
   folder_path: string;
   is_archived: boolean;
   file_size_mb: number;
+  speakers?: string[];
 }
 
 export function ArchiveSettings() {
+  const router = useRouter();
   const [meetings, setMeetings] = useState<ArchivableMeeting[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -143,11 +146,33 @@ export function ArchiveSettings() {
           ) : (
             meetings.map(meeting => (
               <div key={meeting.id} className="grid grid-cols-12 gap-4 p-3 items-center hover:bg-gray-50 transition-colors">
-                <div className="col-span-5 truncate font-medium text-gray-700" title={meeting.title}>
-                  {meeting.title}
+                <div className="col-span-5 flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-medium text-gray-700" title={meeting.title}>
+                      {meeting.title}
+                    </span>
+                    <button
+                      onClick={() => router.push(`/meeting-details?id=${meeting.id}`)}
+                      className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                      title="Open Meeting Details"
+                    >
+                      <ExternalLink size={14} />
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                      {meeting.date}
+                    </span>
+                    {meeting.speakers && meeting.speakers.slice(0, 3).map((speaker, idx) => (
+                      <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600 gap-1">
+                        <User size={10} />
+                        {speaker}
+                      </span>
+                    ))}
+                  </div>
                 </div>
                 <div className="col-span-2 text-sm text-gray-500">
-                  {meeting.date}
+                  {/* Date moved to chips */}
                 </div>
                 <div className="col-span-2 text-sm text-gray-500 flex items-center gap-1">
                   {meeting.is_archived ? (

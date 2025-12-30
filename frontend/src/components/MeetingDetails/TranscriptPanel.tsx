@@ -42,39 +42,45 @@ export function TranscriptPanel({
     <div className="hidden md:flex md:w-1/4 lg:w-1/3 min-w-0 border-r border-gray-200 bg-white flex-col relative shrink-0">
       {/* Title area */}
       <div className="p-4 border-b border-gray-200">
-        <TranscriptButtonGroup
-          transcriptCount={transcripts?.length || 0}
-          onCopyTranscript={onCopyTranscript}
-          onOpenMeetingFolder={onOpenMeetingFolder}
-        />
-        
-        {/* Toggle between improved and original transcripts */}
-        {hasImprovedTranscript && (
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              onClick={() => setShowImproved(true)}
-              className={cn(
-                "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-                showImproved
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              )}
-            >
-              ✨ Enhanced
-            </button>
-            <button
-              onClick={() => setShowImproved(false)}
-              className={cn(
-                "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-                !showImproved
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              )}
-            >
-              📝 Original
-            </button>
+        <div className="flex items-center justify-between">
+          {/* Toggle between improved and original transcripts */}
+          {hasImprovedTranscript ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowImproved(true)}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                  showImproved
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                )}
+              >
+                ✨ Enhanced
+              </button>
+              <button
+                onClick={() => setShowImproved(false)}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                  !showImproved
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                )}
+              >
+                📝 Original
+              </button>
+            </div>
+          ) : (
+            <div />
+          )}
+
+          <div className="flex-shrink-0">
+            <TranscriptButtonGroup
+              transcriptCount={transcripts?.length || 0}
+              onCopyTranscript={onCopyTranscript}
+              onOpenMeetingFolder={onOpenMeetingFolder}
+            />
           </div>
-        )}
+        </div>
 
         {/* Progress Indicator */}
         {isWaitingForEnhanced && (
@@ -92,7 +98,7 @@ export function TranscriptPanel({
             </div>
             {retranscriptionProgress !== null && retranscriptionProgress !== undefined && (
               <div className="w-full bg-blue-200 rounded-full h-1.5">
-                <div 
+                <div
                   className="bg-blue-600 h-1.5 rounded-full transition-all duration-300 ease-out"
                   style={{ width: `${Math.max(5, Math.min(100, retranscriptionProgress))}%` }}
                 />
@@ -105,8 +111,8 @@ export function TranscriptPanel({
       {/* Transcript content */}
       <div className="flex-1 overflow-y-auto pb-4">
         {showImproved && hasImprovedTranscript ? (
-          <EnhancedTranscriptView 
-            content={improvedTranscript!} 
+          <EnhancedTranscriptView
+            content={improvedTranscript!}
             meetingFolderPath={meetingFolderPath}
             onTranscriptUpdate={onTranscriptUpdate}
           />

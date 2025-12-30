@@ -91,11 +91,11 @@ impl RemoteWhisperProvider {
         self.config.read().await.server_url.clone()
     }
 
-    /// Convert f32 audio samples to WAV bytes (16kHz mono)
+    /// Convert f32 audio samples to WAV bytes (16kHz stereo)
     fn samples_to_wav(samples: &[f32]) -> Vec<u8> {
         const SAMPLE_RATE: u32 = 16000;
         const BITS_PER_SAMPLE: u16 = 16;
-        const NUM_CHANNELS: u16 = 1;
+        const NUM_CHANNELS: u16 = 2; // Stereo required for diarization
 
         // Convert f32 samples to i16
         let i16_samples: Vec<i16> = samples
@@ -106,10 +106,12 @@ impl RemoteWhisperProvider {
             })
             .collect();
 
-        let data_size = (i16_samples.len() * 2) as u32;
+        // Calculate sizes for stereo (2 channels)
+        // data_size = num_samples * num_channels * bytes_per_sample
+        let data_size = (i16_samples.len() * 2 * 2) as u32;
         let file_size = 36 + data_size;
 
-        let mut wav = Vec::with_capacity(44 + i16_samples.len() * 2);
+        let mut wav = Vec::with_capacity(44 + data_size as usize);
 
         // RIFF header
         wav.extend_from_slice(b"RIFF");
@@ -133,7 +135,9 @@ impl RemoteWhisperProvider {
         wav.extend_from_slice(&data_size.to_le_bytes());
 
         for sample in &i16_samples {
-            wav.extend_from_slice(&sample.to_le_bytes());
+            let bytes = sample.to_le_bytes();
+            wav.extend_from_slice(&bytes); // Left channel
+            wav.extend_from_slice(&bytes); // Right channel (duplicate mono)
         }
 
         wav

@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, CheckCircle, XCircle, Loader2, FileAudio, Clock, HardDrive, FolderOpen } from "lucide-react";
+import { RefreshCw, CheckCircle, XCircle, Loader2, FileAudio, Clock, HardDrive, FolderOpen, ExternalLink, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface RecordingInfo {
@@ -31,6 +32,7 @@ interface RetranscribeProgress {
 }
 
 export default function RetranscribePanel() {
+  const router = useRouter();
   const [recordings, setRecordings] = useState<RecordingInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -249,23 +251,38 @@ export default function RetranscribePanel() {
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <FileAudio className="h-5 w-5 text-gray-400 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{recording.meeting_name}</p>
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium truncate">{recording.meeting_name}</p>
+                      <button
+                        onClick={() => router.push(`/meeting-details?id=${recording.meeting_name}`)}
+                        className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                        title="Open Meeting Details"
+                      >
+                        <ExternalLink size={14} />
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs text-gray-500 mt-1">
                       <span className="flex items-center gap-1">
                         <HardDrive className="h-3 w-3" />
                         {formatFileSize(recording.file_size_bytes)}
                       </span>
                       {recording.has_transcript && (
-                        <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                        <span className="flex items-center gap-1 text-green-600 dark:text-green-400 bg-green-50 px-1.5 py-0.5 rounded">
                           <CheckCircle className="h-3 w-3" />
                           Transcribed
                         </span>
                       )}
                       {recording.has_improved_transcript && (
-                        <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                        <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 bg-blue-50 px-1.5 py-0.5 rounded">
                           <CheckCircle className="h-3 w-3" />
                           Enhanced
+                        </span>
+                      )}
+                      {/* Attempt to parse date from meeting name if it matches pattern Meeting YYYY-MM-DD... */}
+                      {recording.meeting_name.match(/Meeting \d{4}-\d{2}-\d{2}/) && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                          {recording.meeting_name.split('_')[0].replace('Meeting ', '')}
                         </span>
                       )}
                       {status?.processingTime && (
