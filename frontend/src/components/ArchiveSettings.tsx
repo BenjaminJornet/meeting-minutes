@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Archive, RefreshCw, Download, HardDrive, CheckCircle, AlertCircle } from 'lucide-react';
+import { Archive, RefreshCw, Download, HardDrive, CheckCircle, AlertCircle, FolderOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ArchivableMeeting {
@@ -161,7 +161,14 @@ export function ArchiveSettings() {
                     </span>
                   )}
                 </div>
-                <div className="col-span-3 text-right">
+                <div className="col-span-3 text-right flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => invoke('open_external_url', { url: meeting.folder_path })}
+                    className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+                    title="Open Folder"
+                  >
+                    <FolderOpen size={14} />
+                  </button>
                   {meeting.is_archived ? (
                     <button
                       onClick={() => handleRestore(meeting)}

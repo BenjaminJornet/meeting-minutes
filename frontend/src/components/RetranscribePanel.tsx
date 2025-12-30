@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, CheckCircle, XCircle, Loader2, FileAudio, Clock, HardDrive } from "lucide-react";
+import { RefreshCw, CheckCircle, XCircle, Loader2, FileAudio, Clock, HardDrive, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface RecordingInfo {
@@ -283,6 +283,18 @@ export default function RetranscribePanel() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 ml-4">
+                  <Button
+                    onClick={() => {
+                      // Extract folder path from audio path
+                      const folderPath = recording.audio_path.substring(0, Math.max(recording.audio_path.lastIndexOf('/'), recording.audio_path.lastIndexOf('\\')));
+                      invoke('open_external_url', { url: folderPath });
+                    }}
+                    variant="ghost"
+                    size="icon"
+                    title="Open Folder"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                  </Button>
                   {getStatusIcon(status)}
                   <Button
                     onClick={() => retranscribe(recording)}

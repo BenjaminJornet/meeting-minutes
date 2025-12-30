@@ -8,7 +8,8 @@ import { ModelConfig } from '@/components/ModelSettingsModal';
 import { SummaryGeneratorButtonGroup } from './SummaryGeneratorButtonGroup';
 import { SummaryUpdaterButtonGroup } from './SummaryUpdaterButtonGroup';
 import Analytics from '@/lib/analytics';
-import { RefObject } from 'react';
+import { RefObject, useMemo } from 'react';
+import { User } from 'lucide-react';
 
 interface SummaryPanelProps {
   meeting: {
@@ -83,10 +84,30 @@ export function SummaryPanel({
 }: SummaryPanelProps) {
   const isSummaryLoading = summaryStatus === 'processing' || summaryStatus === 'summarizing' || summaryStatus === 'regenerating';
 
+  const speakers = useMemo(() => {
+    const uniqueSpeakers = new Set<string>();
+    transcripts.forEach(t => {
+      if (t.speaker) uniqueSpeakers.add(t.speaker);
+    });
+    return Array.from(uniqueSpeakers).sort();
+  }, [transcripts]);
+
   return (
     <div className="flex-1 min-w-0 flex flex-col bg-white overflow-hidden">
       {/* Title area */}
       <div className="p-4 border-b border-gray-200">
+        {/* Speaker Chips */}
+        {speakers.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {speakers.map(speaker => (
+              <div key={speaker} className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium border border-blue-100">
+                <User size={12} />
+                {speaker}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* <EditableTitle
           title={meetingTitle}
           isEditing={isEditingTitle}

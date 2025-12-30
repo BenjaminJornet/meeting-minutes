@@ -117,6 +117,7 @@ export default function PageContent({
           meetingFolderPath={meeting.folder_path}
           isWaitingForEnhanced={isWaitingForEnhanced}
           retranscriptionProgress={retranscriptionProgress}
+          onTranscriptUpdate={onMeetingUpdated}
         />
 
           <SummaryPanel

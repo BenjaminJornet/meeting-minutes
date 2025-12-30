@@ -19,6 +19,7 @@ interface TranscriptPanelProps {
   meetingFolderPath?: string | null;
   isWaitingForEnhanced?: boolean;
   retranscriptionProgress?: number | null;
+  onTranscriptUpdate?: () => void;
 }
 
 export function TranscriptPanel({
@@ -31,7 +32,8 @@ export function TranscriptPanel({
   isRecording,
   meetingFolderPath,
   isWaitingForEnhanced,
-  retranscriptionProgress
+  retranscriptionProgress,
+  onTranscriptUpdate
 }: TranscriptPanelProps) {
   const [showImproved, setShowImproved] = useState(!!improvedTranscript);
   const hasImprovedTranscript = !!improvedTranscript && improvedTranscript.trim().length > 0;
@@ -106,6 +108,7 @@ export function TranscriptPanel({
           <EnhancedTranscriptView 
             content={improvedTranscript!} 
             meetingFolderPath={meetingFolderPath}
+            onTranscriptUpdate={onTranscriptUpdate}
           />
         ) : (
           <TranscriptView transcripts={transcripts} />

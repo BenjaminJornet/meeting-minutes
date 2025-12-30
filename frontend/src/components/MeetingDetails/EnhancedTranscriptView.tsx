@@ -21,9 +21,10 @@ interface Segment {
 interface EnhancedTranscriptViewProps {
   content: string;
   meetingFolderPath?: string | null;
+  onTranscriptUpdate?: () => void;
 }
 
-export function EnhancedTranscriptView({ content, meetingFolderPath }: EnhancedTranscriptViewProps) {
+export function EnhancedTranscriptView({ content, meetingFolderPath, onTranscriptUpdate }: EnhancedTranscriptViewProps) {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [editingSpeakerIndex, setEditingSpeakerIndex] = useState<number | null>(null);
   const [tempSpeakerName, setTempSpeakerName] = useState('');
@@ -86,6 +87,11 @@ export function EnhancedTranscriptView({ content, meetingFolderPath }: EnhancedT
           audioPath: audioPath,
           jsonContent: JSON.stringify(newSegments)
         });
+        
+        // Notify parent to refresh data
+        if (onTranscriptUpdate) {
+          onTranscriptUpdate();
+        }
       } catch (e) {
         console.error("Failed to save transcript", e);
       }

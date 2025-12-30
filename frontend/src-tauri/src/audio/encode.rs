@@ -52,6 +52,8 @@ pub fn encode_single_audio(
             "aac_low", // Use AAC-LC profile for better compatibility
             "-movflags",
             "+faststart", // Optimize for web streaming
+            "-ac",
+            "2", // Force stereo output for compatibility with diarization
             "-f",
             "mp4",
             output_path.to_str().unwrap(),
