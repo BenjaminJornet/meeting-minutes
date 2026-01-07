@@ -24,6 +24,9 @@ WORKDIR /app
 COPY whisper.cpp/ ./whisper.cpp/
 RUN rm -rf ./whisper.cpp/build
 
+# Overwrite with custom server code (Lazy loading & Auto-unload)
+COPY whisper-custom/server/server.cpp ./whisper.cpp/examples/server/server.cpp
+
 # Build whisper server with CPU-only optimizations
 WORKDIR /app/whisper.cpp
 RUN cmake -B build \

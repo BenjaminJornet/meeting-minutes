@@ -7,11 +7,14 @@
 #include <cmath>
 #include <fstream>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <thread>
 #include <vector>
 #include <cstring>
 #include <sstream>
+#include <chrono>
+#include <atomic>
 
 #if defined(_MSC_VER)
 #pragma warning(disable: 4244 4267) // possible loss of data
@@ -578,19 +581,37 @@ int main(int argc, char ** argv) {
         }
     }
 
-    struct whisper_context * ctx = whisper_init_from_file_with_params(params.model.c_str(), cparams);
-
-    if (ctx == nullptr) {
-        fprintf(stderr, "[ERROR] Failed to initialize whisper context\n");
-        fflush(stderr);
-        return 3;
-    }
-    fprintf(stderr, "[INFO] Successfully initialized whisper context\n");
+    // Lazy load: initialize to nullptr
+    struct whisper_context * ctx = nullptr;
+    auto last_req_time = std::chrono::steady_clock::now();
+    
+    fprintf(stderr, "[INFO] Whisper context will be loaded on first request\n");
     fflush(stderr);
-    // initialize openvino encoder. this has no effect on whisper.cpp builds that don't have OpenVINO configured
-    whisper_ctx_init_openvino_encoder(ctx, nullptr, params.openvino_encode_device.c_str(), nullptr);
 
     Server svr;
+    
+    // Auto-unload thread
+    std::thread unloader([&]() {
+        const char* env_timeout = std::getenv("IDLE_MODEL_TIMEOUT");
+        const int IDLE_SECONDS = env_timeout ? std::stoi(env_timeout) : 60;
+        
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+            
+            std::lock_guard<std::mutex> lock(whisper_mutex);
+            if (ctx != nullptr) {
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_req_time).count();
+                if (elapsed > IDLE_SECONDS) {
+                    fprintf(stderr, "[INFO] Idle for %llds, unloading model to free VRAM\n", elapsed);
+                    whisper_free(ctx);
+                    ctx = nullptr;
+                }
+            }
+        }
+    });
+    unloader.detach();
+
     svr.set_default_headers({{"Server", "whisper.cpp"},
                              {"Access-Control-Allow-Origin", "*"},
                              {"Access-Control-Allow-Headers", "content-type, authorization"}});
@@ -681,6 +702,21 @@ int main(int argc, char ** argv) {
     svr.Post(sparams.request_path + sparams.inference_path, [&](const Request &req, Response &res){
         // acquire whisper model mutex lock
         std::lock_guard<std::mutex> lock(whisper_mutex);
+
+        // Update activity time
+        last_req_time = std::chrono::steady_clock::now();
+
+        // Lazy load
+        if (ctx == nullptr) {
+            fprintf(stderr, "[INFO] Loading model: %s\n", params.model.c_str());
+            ctx = whisper_init_from_file_with_params(params.model.c_str(), cparams);
+            if (ctx == nullptr) {
+                fprintf(stderr, "[ERROR] Failed to initialize whisper context\n");
+                res.set_content("{\"error\":\"failed to load model\"}", "application/json");
+                return;
+            }
+            whisper_ctx_init_openvino_encoder(ctx, nullptr, params.openvino_encode_device.c_str(), nullptr);
+        }
 
         fprintf(stderr, "\n[REQUEST] New inference request received\n");
         fflush(stderr);
@@ -1003,6 +1039,20 @@ int main(int argc, char ** argv) {
         // acquire whisper model mutex lock
         std::lock_guard<std::mutex> lock(whisper_mutex);
 
+        // Update activity time
+        last_req_time = std::chrono::steady_clock::now();
+
+        // Lazy load
+        if (ctx == nullptr) {
+            fprintf(stderr, "[INFO] Loading model for stream: %s\n", params.model.c_str());
+            ctx = whisper_init_from_file_with_params(params.model.c_str(), cparams);
+            if (ctx == nullptr) {
+                res.set_content("{\"error\":\"failed to load model\"}", "application/json");
+                return;
+            }
+            whisper_ctx_init_openvino_encoder(ctx, nullptr, params.openvino_encode_device.c_str(), nullptr);
+        }
+
         if (!req.has_file("audio")) {
             res.set_content("{\"error\":\"no audio data\"}", "application/json");
             return;
@@ -1163,8 +1213,10 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    whisper_print_timings(ctx);
-    whisper_free(ctx);
+    if (ctx != nullptr) {
+        whisper_print_timings(ctx);
+        whisper_free(ctx);
+    }
 
     return 0;
 }

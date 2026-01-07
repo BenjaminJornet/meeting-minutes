@@ -31,6 +31,9 @@ WORKDIR /app
 # Copy source code
 COPY whisper.cpp/ ./whisper.cpp/
 
+# Overwrite with custom server code (Lazy loading & Auto-unload)
+COPY whisper-custom/server/server.cpp ./whisper.cpp/examples/server/server.cpp
+
 # Build whisper server with CUDA support
 WORKDIR /app/whisper.cpp
 RUN cmake -B build \

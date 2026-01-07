@@ -238,6 +238,7 @@ def debug_gpu():
 
 import multiprocessing
 import uuid
+import queue
 
 # Ensure a safe multiprocessing start method for CUDA (use 'spawn' to avoid forking issues)
 try:
@@ -248,9 +249,36 @@ except RuntimeError:
 
 # Worker settings
 WORKER_TIMEOUT = int(os.getenv("WORKER_TIMEOUT", "1200"))  # seconds (default 20 minutes)
+IDLE_MODEL_TIMEOUT = int(os.getenv("IDLE_MODEL_TIMEOUT", "60")) # seconds (default 1 minute)
+
 _worker_request_queue: Optional[multiprocessing.Queue] = None
 _worker_process: Optional[multiprocessing.Process] = None
 _monitor_stop_event: Optional[threading.Event] = None
+
+
+def unload_models():
+    """Unload models from GPU VRAM."""
+    global asr_model, diar_pipeline
+    did_unload = False
+    
+    if asr_model is not None:
+        logger.info("🗑️ Unloading ASR model...")
+        del asr_model
+        asr_model = None
+        did_unload = True
+        
+    if diar_pipeline is not None:
+        logger.info("🗑️ Unloading Diarization pipeline...")
+        del diar_pipeline
+        diar_pipeline = None
+        did_unload = True
+        
+    if did_unload:
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        _log_gpu_stats("after unload")
+        logger.info("✅ Models unloaded due to inactivity")
 
 
 def _child_process_transcribe(child_conn, tmp_path_c, language_c, diarize_c):
@@ -314,17 +342,17 @@ class InferenceWorker(multiprocessing.Process):
             pass
 
         logger.info(f"🚀 Inference worker starting (pid={os.getpid()})")
-        # Preload models in worker
-        try:
-            get_asr_model()
-            get_diar_pipeline()
-        except Exception as e:
-            logger.exception(f"❌ Worker preloading failed: {e}")
+        # Models are loaded on demand, not preloaded
 
         while True:
             job = None
             try:
-                job = self.request_queue.get()
+                # Wait for job; if idle for IDLE_MODEL_TIMEOUT, raise Empty
+                job = self.request_queue.get(timeout=IDLE_MODEL_TIMEOUT)
+            except queue.Empty:
+                # No requests for a while -> unload models to free VRAM
+                unload_models()
+                continue
             except Exception as e:
                 logger.exception(f"❌ Worker queue get failed: {e}")
                 break
