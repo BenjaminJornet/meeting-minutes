@@ -21,7 +21,7 @@ export function ArchiveSettings() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [showAll, setShowAll] = useState(false);
+  const [showAll, setShowAll] = useState(true);
 
   const fetchMeetings = async () => {
     setIsLoading(true);
@@ -29,7 +29,9 @@ export function ArchiveSettings() {
       const data = await invoke<ArchivableMeeting[]>('get_archivable_meetings');
       
       if (showAll) {
-        setMeetings(data);
+        // Sort by date descending (newest first)
+        const sorted = [...data].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setMeetings(sorted);
       } else {
         // Filter meetings older than 1 month (approx 30 days)
         const now = new Date();
@@ -40,7 +42,9 @@ export function ArchiveSettings() {
           const mDate = new Date(m.date);
           return mDate < oneMonthAgo;
         });
-        setMeetings(filtered);
+        // Sort by date descending (newest first)
+        const sorted = filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setMeetings(sorted);
       }
     } catch (e) {
       console.error("Failed to fetch meetings", e);

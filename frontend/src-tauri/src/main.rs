@@ -7,31 +7,32 @@ use log;
 use env_logger;
 use std::path::PathBuf;
 
-/// Try to load .env from multiple locations
+/// Try to load .env from multiple locations (prioritizing project root)
 fn load_env_file() {
-    // List of possible .env locations to try
+    // List of possible .env locations to try (in priority order)
+    // Project root .env is checked first for centralized configuration
     let possible_paths: Vec<PathBuf> = vec![
-        // 1. Current directory (dev mode)
+        // 1. Project root (centralized config) - highest priority
+        PathBuf::from("../../.env"),
+        // 2. Current directory (dev mode)
         PathBuf::from(".env"),
-        // 1b. Parent directory (frontend root)
+        // 2b. Parent directory (frontend root)
         PathBuf::from("../.env"),
-        // 1c. Backend directory (dev mode / monorepo)
-        PathBuf::from("../../backend/.env"),
-        // 2. Executable's directory (bundled app)
+        // 3. Executable's directory (bundled app)
         std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|p| p.join(".env")))
             .unwrap_or_default(),
-        // 3. macOS: Inside the app bundle's Resources
+        // 4. macOS: Inside the app bundle's Resources
         std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|p| p.join("../Resources/.env")))
             .unwrap_or_default(),
-        // 4. User's config directory for Meetily
+        // 5. User's config directory for Meetily
         dirs::config_dir()
             .map(|p| p.join("Meetily/.env"))
             .unwrap_or_default(),
-        // 5. User's home directory
+        // 6. User's home directory
         dirs::home_dir()
             .map(|p| p.join(".meetily.env"))
             .unwrap_or_default(),

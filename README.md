@@ -101,8 +101,14 @@ Run the backend services (API + Whisper with GPU) using Docker:
 
 ```bash
 git clone https://github.com/Zackriya-Solutions/meeting-minutes.git
-cd meeting-minutes/backend
+cd meeting-minutes
+
+# Configure environment (single centralized .env file)
 cp .env.example .env
+# Edit .env to set your preferences (Ollama URL, language, API keys, etc.)
+
+# Start Docker services
+cd backend
 docker network create meeting-minutes
 docker compose -p meeting-minutes --profile default build
 docker compose -p meeting-minutes --profile default up -d

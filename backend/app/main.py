@@ -15,9 +15,18 @@ import shutil
 import uuid
 import os
 from enhanced import enhanced_manager
+import pathlib
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from root .env first, then fallback to local
+# This allows centralized configuration at project root
+root_env = pathlib.Path(__file__).parent.parent.parent / '.env'
+local_env = pathlib.Path(__file__).parent.parent / '.env'
+
+if root_env.exists():
+    load_dotenv(root_env)
+if local_env.exists():
+    load_dotenv(local_env, override=False)  # Don't override root values
+load_dotenv()  # Also check current directory and defaults
 
 # Configure logger with line numbers and function names
 logger = logging.getLogger(__name__)

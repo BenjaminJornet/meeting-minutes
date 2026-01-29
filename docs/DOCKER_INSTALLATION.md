@@ -45,13 +45,20 @@ cd meeting-minutes
 ```
 
 ### 2. Configure Environment
+
+The project uses a **single centralized `.env` file** at the project root that is shared by both backend and frontend.
+
 ```bash
-cd backend
+# From project root
 cp .env.example .env
 ```
 
 Edit `.env` to customize:
 ```env
+# Shared URLs (used by both backend and frontend)
+MEETILY_BACKEND_URL=http://localhost:5167
+MEETILY_OLLAMA_URL=http://localhost:11434
+
 # For GPU (default - recommended)
 DOCKERFILE=Dockerfile.server-gpu
 TAG=gpu
@@ -65,7 +72,7 @@ TAG=gpu
 ENHANCED_ASR_MODEL_SIZE=large-v3
 
 # Language for transcription
-WHISPER_LANGUAGE=fr  # Change to your language (en, de, es, etc.)
+MEETILY_LANGUAGE=fr  # Change to your language (en, de, es, etc.)
 
 # Whisper model (larger = better accuracy, more VRAM)
 WHISPER_MODEL=models/ggml-large-v3.bin
@@ -73,16 +80,17 @@ WHISPER_MODEL=models/ggml-large-v3.bin
 
 ### 3. Create Docker Network
 ```bash
+cd backend
 docker network create meeting-minutes
 ```
 
 ### 4. Build and Start Services
 ```bash
 # Build all images (first time only, takes ~10 minutes)
-docker compose -p meeting-minutes --profile default build
+docker compose --env-file ../.env --profile default build
 
 # Start all services
-docker compose -p meeting-minutes --profile default up -d
+docker compose --env-file ../.env --profile default up -d
 ```
 
 ### 5. Download Whisper Model (First Run)
@@ -94,8 +102,17 @@ docker logs -f whisper-server
 ```
 
 ### 6. Verify Services Are Running
-- **Backend API**: http://localhost:5167/get-meetings
-- **Whisper Server**: http://localhost:8178
+
+The following 3 containers should be running:
+```bash
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+```
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| **whisper-server** | http://localhost:8178 | Whisper.cpp streaming ASR |
+| **enhanced-asr** | http://localhost:8000 | Faster-whisper batch processing |
+| **meetily-backend** | http://localhost:5167 | FastAPI backend (API at `/docs`) |
 
 ### 7. Build and Run the Desktop App
 The frontend is a Tauri desktop app that runs locally on your machine.
@@ -104,8 +121,8 @@ See [REMOTE_DESKTOP_SETUP.md](REMOTE_DESKTOP_SETUP.md) for detailed instructions
 Quick start:
 ```bash
 cd ../frontend
-cp .env.example .env
-# Edit .env with your server IP if remote
+# The frontend uses the same root .env file automatically
+# If you need to override settings, edit the root .env
 pnpm install
 pnpm run tauri:dev  # Development mode
 # OR
@@ -116,36 +133,36 @@ pnpm run tauri:build  # Production build
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    YOUR LOCAL MACHINE                        │
+│                    YOUR LOCAL MACHINE                       │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │           Meetily Desktop App (Tauri)                  │ │
 │  │  • Captures audio from your microphone                 │ │
 │  │  • Runs Whisper/Parakeet locally for transcription     │ │
 │  │  • Sends transcripts to backend for storage            │ │
 │  └────────────────────────────────────────────────────────┘ │
-│                              │                               │
-└──────────────────────────────│───────────────────────────────┘
+│                              │                              │
+└──────────────────────────────│──────────────────────────────┘
                                │ Network (local or Tailscale)
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│           DOCKER SERVER (Windows/Linux + GPU)                │
-│                    meeting-minutes network                   │
+│           DOCKER SERVER (Windows/Linux + GPU)               │
+│                    meeting-minutes network                  │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  ┌─────────────────┐    ┌─────────────────────┐            │
-│  │ meetily-backend │    │   whisper-server    │            │
-│  │   (FastAPI)     │    │ (Whisper.cpp + CUDA)│            │
-│  │   Port: 5167    │    │     Port: 8178      │            │
-│  │  📁 Database    │    │   🎮 RTX 4090 GPU   │            │
-│  └─────────────────┘    └─────────────────────┘            │
+│  ┌─────────────────┐    ┌─────────────────────┐             │
+│  │ meetily-backend │    │   whisper-server    │             │
+│  │   (FastAPI)     │    │ (Whisper.cpp + CUDA)│             │
+│  │   Port: 5167    │    │     Port: 8178      │             │
+│  │  📁 Database   │    │   🎮 RTX 4090 GPU   │             │
+│  └─────────────────┘    └─────────────────────┘             │
 │           │                                                 │
 │           ▼                                                 │
-│  ┌─────────────────┐                                        │
-│  │  enhanced-asr   │                                        │
-│  │ (Faster-Whisper)│                                        │
-│  │   Port: 8000    │                                        │
-│  │ ⚡ Batch GPU ASR │                                        │
-│  └─────────────────┘                                        │
+│  ┌──────────────────┐                                       │
+│  │  enhanced-asr    │                                       │
+│  │ (Faster-Whisper) │                                       │
+│  │   Port: 8000     │                                       │
+│  │ ⚡ Batch GPU ASR │                                       │
+│  └──────────────────┘                                       │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -166,18 +183,18 @@ pnpm run tauri:build  # Production build
 ### Start Services
 ```bash
 cd backend
-docker compose -p meeting-minutes --profile default up -d
+docker compose --env-file ../.env --profile default up -d
 ```
 
 ### Stop Services
 ```bash
-docker compose -p meeting-minutes --profile default down
+docker compose --env-file ../.env --profile default down
 ```
 
 ### View Logs
 ```bash
 # All services
-docker compose -p meeting-minutes logs -f
+docker compose --env-file ../.env logs -f
 
 # Specific service
 docker logs -f whisper-server
@@ -186,8 +203,8 @@ docker logs -f meetily-backend
 
 ### Rebuild After Code Changes
 ```bash
-docker compose -p meeting-minutes --profile default build --no-cache
-docker compose -p meeting-minutes --profile default up -d --force-recreate
+docker compose --env-file ../.env --profile default build --no-cache
+docker compose --env-file ../.env --profile default up -d --force-recreate
 ```
 
 ### Check GPU Status
@@ -203,10 +220,10 @@ git pull origin main
 
 # Rebuild backend images
 cd backend
-docker compose -p meeting-minutes --profile default build
+docker compose --env-file ../.env --profile default build
 
 # Restart with new images
-docker compose -p meeting-minutes --profile default up -d --force-recreate
+docker compose --env-file ../.env --profile default up -d --force-recreate
 
 # Rebuild desktop app (on your local machine)
 cd ../frontend
@@ -231,7 +248,7 @@ docker logs whisper-server | grep -i cuda
 ### Model Download Failed
 ```bash
 # Manually download model
-docker compose -p meeting-minutes --profile download up model-downloader
+docker compose --env-file ../.env --profile download up model-downloader
 
 # Or restart whisper-server
 docker restart whisper-server
@@ -251,9 +268,9 @@ FRONTEND_PORT=3119
 docker logs whisper-server
 
 # Rebuild from scratch
-docker compose -p meeting-minutes --profile default down -v
-docker compose -p meeting-minutes --profile default build --no-cache
-docker compose -p meeting-minutes --profile default up -d
+docker compose --env-file ../.env --profile default down -v
+docker compose --env-file ../.env --profile default build --no-cache
+docker compose --env-file ../.env --profile default up -d
 ```
 
 ## 📁 Data Persistence

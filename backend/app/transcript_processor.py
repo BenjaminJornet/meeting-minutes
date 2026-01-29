@@ -117,7 +117,8 @@ class TranscriptProcessor:
                 logger.info(f"🤖 Using Claude model: {model_name}")
             elif model == "ollama":
                 # Use environment variable for Ollama host configuration
-                ollama_host = os.getenv('OLLAMA_HOST', 'http://localhost:11434')
+                # MEETILY_OLLAMA_URL is the new standard, OLLAMA_HOST is legacy fallback
+                ollama_host = os.getenv('MEETILY_OLLAMA_URL') or os.getenv('OLLAMA_HOST', 'http://localhost:11434')
                 ollama_base_url = f"{ollama_host}/v1"
                 ollama_model = OpenAIModel(
                     model_name=model_name, provider=OpenAIProvider(base_url=ollama_base_url)
@@ -255,7 +256,8 @@ class TranscriptProcessor:
         }
 
         # Create a client and track it for cleanup
-        ollama_host = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
+        # MEETILY_OLLAMA_URL is the new standard, OLLAMA_HOST is legacy fallback
+        ollama_host = os.getenv('MEETILY_OLLAMA_URL') or os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
         client = AsyncClient(host=ollama_host)
         self.active_clients.append(client)
         

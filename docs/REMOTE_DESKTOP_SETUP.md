@@ -68,18 +68,21 @@ This guide explains how to run Meetily with the **backend services on a remote s
 ### 1.1 Start Backend Services
 
 ```powershell
-cd meeting-minutes/backend
+cd meeting-minutes
 
 # Create network if it doesn't exist
+cd backend
 docker network create meeting-minutes
 
-# Copy and configure environment
+# Copy and configure environment from project root
+cd ..
 cp .env.example .env
-# Edit .env if needed
+# Edit .env to set your preferences
 
 # Build and start services
-docker compose -p meeting-minutes --profile default build
-docker compose -p meeting-minutes --profile default up -d
+cd backend
+docker compose --env-file ../.env --profile default build
+docker compose --env-file ../.env --profile default up -d
 ```
 
 ### 1.2 Verify Services
@@ -133,16 +136,17 @@ pnpm install
 
 ### 2.2 Configure Remote Backend
 
-Create your environment file:
+Edit the root `.env` file with your server's Tailscale IP:
 
 ```bash
+# From project root
 cp .env.example .env
 ```
 
-Edit `.env` with your server's Tailscale IP:
+Edit `.env`:
 
 ```bash
-# .env
+# .env (at project root)
 MEETILY_BACKEND_URL=http://100.64.0.4:5167
 MEETILY_OLLAMA_URL=http://100.64.0.4:11434
 ```

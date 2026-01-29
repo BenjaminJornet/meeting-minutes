@@ -67,6 +67,7 @@ start_with_output.ps1
 
 **After startup, access:**
 - **Whisper Server**: http://localhost:8178
+- **Enhanced ASR**: http://localhost:8000
 - **Meeting App**: http://localhost:5167 (with API docs at `/docs`)
 
 ---
@@ -74,6 +75,24 @@ start_with_output.ps1
 ## 🐳 Docker Deployment (Recommended)
 
 Docker provides the easiest setup with automatic dependency management, GPU detection, and cross-platform compatibility.
+
+### 🚀 Quick Start (One Command)
+
+```bash
+# From the backend folder
+cd backend
+
+# Create network (first time only)
+docker network create meeting-minutes
+
+# Start all 3 services (whisper-server, enhanced-asr, meetily-backend)
+docker compose --profile default up -d
+
+# Check status
+docker ps
+```
+
+> **Note**: All services use the centralized `../.env` file from project root.
 
 ### Prerequisites
 - Docker Desktop (Windows/Mac) or Docker Engine (Linux)

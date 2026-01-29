@@ -24,9 +24,13 @@ pub fn get_app_server_url() -> String {
         return url;
     }
 
-    // Fallback: Try to infer from OLLAMA_HOST
-    // If OLLAMA_HOST is http://100.64.0.4:11434, we assume backend is at http://100.64.0.4:5167
-    if let Ok(ollama_host) = env::var("OLLAMA_HOST") {
+    // Fallback: Try to infer from MEETILY_OLLAMA_URL (or legacy OLLAMA_HOST)
+    // If Ollama is http://100.64.0.4:11434, we assume backend is at http://100.64.0.4:5167
+    let ollama_url = env::var("MEETILY_OLLAMA_URL")
+        .or_else(|_| env::var("OLLAMA_HOST")) // Legacy fallback
+        .ok();
+    
+    if let Some(ollama_host) = ollama_url {
         // If Ollama is remote, Backend is likely on the same host
         if !ollama_host.contains("localhost") && !ollama_host.contains("127.0.0.1") {
              let port = env::var("APP_PORT").unwrap_or_else(|_| "5167".to_string());
@@ -41,7 +45,7 @@ pub fn get_app_server_url() -> String {
                      // Avoid replacing http: or https:
                      if base.len() > 6 { 
                          let inferred = format!("{}:{}", base, port);
-                         log_info!("ℹ️ Inferred backend URL from OLLAMA_HOST: {}", inferred);
+                         log_info!("ℹ️ Inferred backend URL from MEETILY_OLLAMA_URL: {}", inferred);
                          return inferred;
                      }
                  }

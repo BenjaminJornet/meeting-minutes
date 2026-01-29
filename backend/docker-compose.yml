@@ -145,11 +145,16 @@ services:
     image: enhanced-asr:latest
     container_name: enhanced-asr
     restart: unless-stopped
+    
+    # Load environment from root .env file
+    env_file:
+      - ../.env
+    
     ports:
       - "8000:8000"
     environment:
       - TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=true
-      - HF_TOKEN=${HF_TOKEN}
+      # HF_TOKEN is loaded from env_file (../.env)
       - WHISPER_MODEL_SIZE=large-v3
       - DEVICE=cuda
       - COMPUTE_TYPE=float16
@@ -178,6 +183,10 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    
+    # Include in default profile (Windows/Linux)
+    profiles:
+      - default
 
   # Model downloader service - ensures models are downloaded before whisper server starts
   model-downloader:
@@ -236,16 +245,21 @@ services:
     container_name: meetily-backend
     restart: unless-stopped
     
+    # Load environment from root .env file
+    env_file:
+      - ../.env
+    
     # Port mapping
     ports:
       - "${APP_PORT:-5167}:5167"
     
-    # Environment variables
+    # Environment variables (override/additions)
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_PATH=/app/data/meeting_minutes.db
-      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      # MEETILY_OLLAMA_URL is the new standard (root .env)
+      - MEETILY_OLLAMA_URL=${MEETILY_OLLAMA_URL:-http://host.docker.internal:11434}
       - ENHANCED_ASR_URL=${ENHANCED_ASR_SERVICE_URL:-http://enhanced-asr:8000}
       - WHISPER_SERVER_URL=http://whisper-server:${WHISPER_PORT:-8178}
     
@@ -259,8 +273,6 @@ services:
       - ./data:/app/data
       # Logs directory
       - meeting_app_logs:/app/logs
-      # Optional: mount local .env file
-      - ${LOCAL_ENV_FILE:-./app/.env}:/app/.env:ro
     
     # Health check
     healthcheck:
@@ -299,16 +311,21 @@ services:
     container_name: meetily-backend
     restart: unless-stopped
     
+    # Load environment from root .env file
+    env_file:
+      - ../.env
+    
     # Port mapping
     ports:
       - "${APP_PORT:-5167}:5167"
     
-    # Environment variables
+    # Environment variables (override/additions)
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - DATABASE_PATH=/app/data/meeting_minutes.db
-      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      # MEETILY_OLLAMA_URL is the new standard (root .env)
+      - MEETILY_OLLAMA_URL=${MEETILY_OLLAMA_URL:-http://host.docker.internal:11434}
       - ENHANCED_ASR_URL=${ENHANCED_ASR_SERVICE_URL:-http://enhanced-asr:8000}
       - WHISPER_SERVER_URL=http://whisper-server:${WHISPER_PORT:-8178}
     
@@ -322,8 +339,6 @@ services:
       - ./data:/app/data
       # Logs directory
       - meeting_app_logs:/app/logs
-      # Optional: mount local .env file
-      - ${LOCAL_ENV_FILE:-./app/.env}:/app/.env:ro
     
     # Health check
     healthcheck:
