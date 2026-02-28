@@ -13,6 +13,7 @@ interface RecordingInfo {
   has_transcript: boolean;
   has_improved_transcript: boolean;
   file_size_bytes: number;
+  has_audio: boolean;
 }
 
 interface RetranscribeResult {
@@ -250,7 +251,7 @@ export default function RetranscribePanel() {
                 )}
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <FileAudio className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                  <FileAudio className={cn("h-5 w-5 flex-shrink-0", recording.has_audio ? "text-gray-400" : "text-orange-400")} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="font-medium truncate">{recording.meeting_name}</p>
@@ -265,7 +266,7 @@ export default function RetranscribePanel() {
                     <div className="flex flex-wrap gap-2 text-xs text-gray-500 mt-1">
                       <span className="flex items-center gap-1">
                         <HardDrive className="h-3 w-3" />
-                        {formatFileSize(recording.file_size_bytes)}
+                        {recording.has_audio ? formatFileSize(recording.file_size_bytes) : 'Audio archivé'}
                       </span>
                       {recording.has_transcript && (
                         <span className="flex items-center gap-1 text-green-600 dark:text-green-400 bg-green-50 px-1.5 py-0.5 rounded">
@@ -317,7 +318,8 @@ export default function RetranscribePanel() {
                     onClick={() => retranscribe(recording)}
                     variant="outline"
                     size="sm"
-                    disabled={isProcessing}
+                    disabled={isProcessing || !recording.has_audio}
+                    title={!recording.has_audio ? "Audio file not available (archived or missing)" : "Re-transcribe this recording"}
                   >
                     {isProcessing ? (
                       <>

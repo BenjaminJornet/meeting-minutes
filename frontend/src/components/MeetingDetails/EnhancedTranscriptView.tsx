@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
 import { Check, Edit2, User, Search, X } from 'lucide-react';
+import { SPEAKER_COLORS, buildSpeakerColorMap } from '@/lib/speaker-colors';
 
 interface Word {
   word: string;
@@ -22,21 +23,10 @@ interface EnhancedTranscriptViewProps {
   content: string;
   meetingFolderPath?: string | null;
   onTranscriptUpdate?: () => void;
+  activeSpeakerFilter?: string | null;
 }
 
-// Fixed color palette for speakers by index - distinct, accessible colors
-const SPEAKER_COLORS = [
-  { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-  { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
-  { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
-  { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
-  { bg: 'bg-pink-50', text: 'text-pink-700', border: 'border-pink-200' },
-  { bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200' },
-  { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
-  { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
-];
-
-export function EnhancedTranscriptView({ content, meetingFolderPath, onTranscriptUpdate }: EnhancedTranscriptViewProps) {
+export function EnhancedTranscriptView({ content, meetingFolderPath, onTranscriptUpdate, activeSpeakerFilter }: EnhancedTranscriptViewProps) {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [editingSpeakerIndex, setEditingSpeakerIndex] = useState<number | null>(null);
   const [tempSpeakerName, setTempSpeakerName] = useState('');
@@ -102,16 +92,8 @@ export function EnhancedTranscriptView({ content, meetingFolderPath, onTranscrip
       setSegments(parsedSegments);
       
       // Build speaker color map based on order of appearance
-      const colorMap = new Map<string, number>();
-      let colorIndex = 0;
-      parsedSegments.forEach(segment => {
-        const speaker = segment.speaker || 'Unknown Speaker';
-        if (!colorMap.has(speaker)) {
-          colorMap.set(speaker, colorIndex % SPEAKER_COLORS.length);
-          colorIndex++;
-        }
-      });
-      setSpeakerColorMap(colorMap);
+      const speakerNames = parsedSegments.map(s => s.speaker || 'Unknown Speaker');
+      setSpeakerColorMap(buildSpeakerColorMap(speakerNames));
     } catch (e) {
       console.error("Failed to parse enhanced transcript JSON", e);
       setError("Failed to parse transcript data");
@@ -214,14 +196,17 @@ export function EnhancedTranscriptView({ content, meetingFolderPath, onTranscrip
         <span className="text-gray-500">Click speaker names to edit</span>
       </div>
       
-      {segments.map((segment, index) => (
-        <div key={index} className="flex gap-3 group">
+      {segments
+        .map((segment, originalIndex) => ({ segment, originalIndex }))
+        .filter(({ segment }) => !activeSpeakerFilter || segment.speaker === activeSpeakerFilter)
+        .map(({ segment, originalIndex }) => (
+        <div key={originalIndex} className="flex gap-3 group">
           <div className="w-12 pt-1 text-xs text-gray-400 font-mono shrink-0 text-right">
             {formatTime(segment.start)}
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
-              {editingSpeakerIndex === index ? (
+              {editingSpeakerIndex === originalIndex ? (
                 <div className="flex items-center gap-1">
                   <input
                     type="text"
@@ -231,13 +216,13 @@ export function EnhancedTranscriptView({ content, meetingFolderPath, onTranscrip
                     placeholder="Speaker Name"
                     autoFocus
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSpeakerSave(index);
+                      if (e.key === 'Enter') handleSpeakerSave(originalIndex);
                       if (e.key === 'Escape') setEditingSpeakerIndex(null);
                     }}
                     onClick={(e) => e.stopPropagation()}
                   />
                   <button 
-                    onClick={(e) => { e.stopPropagation(); handleSpeakerSave(index); }} 
+                    onClick={(e) => { e.stopPropagation(); handleSpeakerSave(originalIndex); }} 
                     className="p-1 text-green-600 hover:bg-green-50 rounded"
                     title="Save"
                   >
@@ -251,7 +236,7 @@ export function EnhancedTranscriptView({ content, meetingFolderPath, onTranscrip
                   const colors = SPEAKER_COLORS[colorIdx];
                   return (
                     <button 
-                      onClick={() => handleSpeakerClick(index, segment.speaker)}
+                      onClick={() => handleSpeakerClick(originalIndex, segment.speaker)}
                       className={cn(
                         "text-xs font-semibold flex items-center gap-1 transition-colors px-1.5 py-0.5 -ml-1.5 rounded",
                         colors.bg, colors.text, `hover:${colors.border}`

@@ -20,6 +20,7 @@ interface TranscriptPanelProps {
   isWaitingForEnhanced?: boolean;
   retranscriptionProgress?: number | null;
   onTranscriptUpdate?: () => void;
+  activeSpeakerFilter?: string | null;
 }
 
 export function TranscriptPanel({
@@ -33,7 +34,8 @@ export function TranscriptPanel({
   meetingFolderPath,
   isWaitingForEnhanced,
   retranscriptionProgress,
-  onTranscriptUpdate
+  onTranscriptUpdate,
+  activeSpeakerFilter
 }: TranscriptPanelProps) {
   const [showImproved, setShowImproved] = useState(!!improvedTranscript);
   const hasImprovedTranscript = !!improvedTranscript && improvedTranscript.trim().length > 0;
@@ -108,6 +110,14 @@ export function TranscriptPanel({
         )}
       </div>
 
+      {/* Active speaker filter banner */}
+      {activeSpeakerFilter && (
+        <div className="sticky top-0 z-10 bg-blue-600 text-white px-4 py-2 flex items-center justify-between text-sm">
+          <span>Filtre actif : <strong>{activeSpeakerFilter}</strong></span>
+          <span className="text-xs opacity-75">Cliquez sur le chip pour désactiver</span>
+        </div>
+      )}
+
       {/* Transcript content */}
       <div className="flex-1 overflow-y-auto pb-4">
         {showImproved && hasImprovedTranscript ? (
@@ -115,6 +125,7 @@ export function TranscriptPanel({
             content={improvedTranscript!}
             meetingFolderPath={meetingFolderPath}
             onTranscriptUpdate={onTranscriptUpdate}
+            activeSpeakerFilter={activeSpeakerFilter}
           />
         ) : (
           <TranscriptView transcripts={transcripts} />

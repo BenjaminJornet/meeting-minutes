@@ -35,11 +35,14 @@ export function ArchiveSettings() {
       } else {
         // Filter meetings older than 1 month (approx 30 days)
         const now = new Date();
-        const oneMonthAgo = new Date(now.setMonth(now.getMonth() - 1));
+        const oneMonthAgo = new Date(now.getTime());
+        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
         
         const filtered = data.filter(m => {
           // Parse date YYYY-MM-DD
           const mDate = new Date(m.date);
+          // If date is invalid, include the meeting (don't hide it)
+          if (isNaN(mDate.getTime())) return true;
           return mDate < oneMonthAgo;
         });
         // Sort by date descending (newest first)

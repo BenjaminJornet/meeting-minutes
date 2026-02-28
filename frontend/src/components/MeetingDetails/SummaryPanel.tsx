@@ -10,6 +10,8 @@ import { SummaryUpdaterButtonGroup } from './SummaryUpdaterButtonGroup';
 import Analytics from '@/lib/analytics';
 import { RefObject, useMemo } from 'react';
 import { User } from 'lucide-react';
+import { SPEAKER_COLORS, buildSpeakerColorMap } from '@/lib/speaker-colors';
+import { cn } from '@/lib/utils';
 
 interface SummaryPanelProps {
   meeting: {
@@ -47,6 +49,8 @@ interface SummaryPanelProps {
   selectedTemplate: string;
   onTemplateSelect: (templateId: string, templateName: string) => void;
   isModelConfigLoading?: boolean;
+  activeSpeakerFilter?: string | null;
+  onSpeakerFilterChange?: (speaker: string | null) => void;
 }
 
 export function SummaryPanel({
@@ -80,7 +84,9 @@ export function SummaryPanel({
   availableTemplates,
   selectedTemplate,
   onTemplateSelect,
-  isModelConfigLoading = false
+  isModelConfigLoading = false,
+  activeSpeakerFilter = null,
+  onSpeakerFilterChange
 }: SummaryPanelProps) {
   const isSummaryLoading = summaryStatus === 'processing' || summaryStatus === 'summarizing' || summaryStatus === 'regenerating';
 
@@ -90,6 +96,14 @@ export function SummaryPanel({
       if (t.speaker) uniqueSpeakers.add(t.speaker);
     });
     return Array.from(uniqueSpeakers).sort();
+  }, [transcripts]);
+
+  const speakerColorMap = useMemo(() => {
+    // Build color map from order of appearance in transcripts (not sorted)
+    const orderedSpeakers = transcripts
+      .map(t => t.speaker)
+      .filter((s): s is string => !!s);
+    return buildSpeakerColorMap(orderedSpeakers);
   }, [transcripts]);
 
   return (
@@ -242,15 +256,34 @@ export function SummaryPanel({
             </div>
           )}
           <div className="p-6 w-full">
-            {/* Speaker Chips */}
+            {/* Speaker Chips - clickable to filter transcripts */}
             {speakers.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-4">
-                {speakers.map(speaker => (
-                  <div key={speaker} className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium border border-blue-100">
-                    <User size={12} />
-                    {speaker}
-                  </div>
-                ))}
+                {speakers.map(speaker => {
+                  const colorIdx = speakerColorMap.get(speaker) ?? 0;
+                  const colors = SPEAKER_COLORS[colorIdx];
+                  const isActive = activeSpeakerFilter === speaker;
+                  return (
+                    <button
+                      key={speaker}
+                      onClick={() => onSpeakerFilterChange?.(isActive ? null : speaker)}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer",
+                        isActive && colors.activeBg,
+                        isActive && colors.activeText,
+                        isActive && "border-transparent shadow-sm",
+                        !isActive && colors.chipBg,
+                        !isActive && colors.chipText,
+                        !isActive && colors.chipBorder,
+                        !isActive && "hover:opacity-80"
+                      )}
+                      title={isActive ? `Show all speakers` : `Filter to ${speaker} only`}
+                    >
+                      <User size={12} />
+                      {speaker}
+                    </button>
+                  );
+                })}
               </div>
             )}
             <BlockNoteSummaryView

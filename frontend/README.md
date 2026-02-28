@@ -148,6 +148,7 @@ The server will be available at http://localhost:8178
 - The frontend is built with Next.js and Tailwind CSS
 - Source code is in the `src/` directory
 - To run only the frontend: `pnpm run dev`
+OR `nvm use v22.19.0` et `pnpm run tauri:build`
 
 ### Backend (Tauri)
 - The Rust backend is in the `src-tauri/` directory

@@ -17,9 +17,16 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
     if (m.improved_transcript) {
       try {
         const parsed = JSON.parse(m.improved_transcript);
+        // Handle both formats: direct array [...] or wrapper { segments: [...] }
+        let segmentsArray: any[] | null = null;
         if (Array.isArray(parsed)) {
-          console.log('📝 Using improved transcript segments');
-          return parsed.map((seg: any, index: number) => ({
+          segmentsArray = parsed;
+        } else if (parsed?.segments && Array.isArray(parsed.segments)) {
+          segmentsArray = parsed.segments;
+        }
+        if (segmentsArray && segmentsArray.length > 0) {
+          console.log('📝 Using improved transcript segments:', segmentsArray.length);
+          return segmentsArray.map((seg: any, index: number) => ({
             id: `improved-${index}`,
             text: seg.text,
             timestamp: new Date().toISOString(),

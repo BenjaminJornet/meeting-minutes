@@ -307,7 +307,12 @@ export function useSummaryGeneration({
       }
     }
 
-    const fullTranscript = transcripts.map(t => t.text).join('\n');
+    const fullTranscript = transcripts.map(t => {
+      if (t.speaker) {
+        return `[${t.speaker}] ${t.text}`;
+      }
+      return t.text;
+    }).join('\n');
     await processSummary({ transcriptText: fullTranscript, customPrompt });
   }, [transcripts, processSummary, modelConfig, isModelConfigLoading, selectedTemplate]);
 

@@ -42,6 +42,7 @@ export default function PageContent({
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [isRecording] = useState(false);
   const [summaryResponse] = useState<SummaryResponse | null>(null);
+  const [activeSpeakerFilter, setActiveSpeakerFilter] = useState<string | null>(null);
 
   // Sidebar context
   const { serverAddress } = useSidebar();
@@ -118,6 +119,7 @@ export default function PageContent({
           isWaitingForEnhanced={isWaitingForEnhanced}
           retranscriptionProgress={retranscriptionProgress}
           onTranscriptUpdate={onMeetingUpdated}
+          activeSpeakerFilter={activeSpeakerFilter}
         />
 
           <SummaryPanel
@@ -152,6 +154,8 @@ export default function PageContent({
           selectedTemplate={templates.selectedTemplate}
           onTemplateSelect={templates.handleTemplateSelection}
           isModelConfigLoading={modelConfig.isLoading}
+          activeSpeakerFilter={activeSpeakerFilter}
+          onSpeakerFilterChange={setActiveSpeakerFilter}
         />
 
       </div>

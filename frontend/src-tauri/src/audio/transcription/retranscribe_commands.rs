@@ -370,12 +370,13 @@ pub struct RecordingInfo {
     pub has_transcript: bool,
     pub has_improved_transcript: bool,
     pub file_size_bytes: u64,
+    pub has_audio: bool,
 }
 
 /// List all recordings that can be re-transcribed
 #[command]
 pub async fn list_recordings_for_retranscription() -> Result<Vec<RecordingInfo>, String> {
-    let recordings_dir = get_recordings_dir()?;
+    let recordings_dir = crate::audio::recording_preferences::get_default_recordings_folder();
     
     let mut recordings = Vec::new();
     
@@ -383,33 +384,43 @@ pub async fn list_recordings_for_retranscription() -> Result<Vec<RecordingInfo>,
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                // Look for audio.mp4 in the meeting folder
+                let metadata_path = path.join("metadata.json");
                 let audio_path = path.join("audio.mp4");
                 let transcript_path = path.join("transcript.txt");
                 let improved_path = path.join("transcripts_improved.json");
                 
-                if audio_path.exists() {
-                    let meeting_name = path.file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("Unknown")
-                        .to_string();
-                    
-                    let has_transcript = transcript_path.exists();
-                    let has_improved_transcript = improved_path.exists();
-                    
-                    // Get file size
-                    let file_size = std::fs::metadata(&audio_path)
-                        .map(|m| m.len())
-                        .unwrap_or(0);
-                    
-                    recordings.push(RecordingInfo {
-                        meeting_name,
-                        audio_path: audio_path.to_string_lossy().to_string(),
-                        has_transcript,
-                        has_improved_transcript,
-                        file_size_bytes: file_size,
-                    });
+                // Include any folder that has metadata.json (valid meeting folder)
+                if !metadata_path.exists() {
+                    continue;
                 }
+                
+                let has_audio = audio_path.exists();
+                
+                let meeting_name = path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                
+                let has_transcript = transcript_path.exists();
+                let has_improved_transcript = improved_path.exists();
+                
+                // Get file size (0 if no audio file)
+                let file_size = if has_audio {
+                    std::fs::metadata(&audio_path)
+                        .map(|m| m.len())
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
+                
+                recordings.push(RecordingInfo {
+                    meeting_name,
+                    audio_path: audio_path.to_string_lossy().to_string(),
+                    has_transcript,
+                    has_improved_transcript,
+                    file_size_bytes: file_size,
+                    has_audio,
+                });
             }
         }
     }
@@ -420,25 +431,7 @@ pub async fn list_recordings_for_retranscription() -> Result<Vec<RecordingInfo>,
     Ok(recordings)
 }
 
-fn get_recordings_dir() -> Result<PathBuf, String> {
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(movies_dir) = dirs::video_dir() {
-            return Ok(movies_dir.join("meetily-recordings"));
-        }
-    }
-    
-    #[cfg(target_os = "windows")]
-    {
-        if let Some(music_dir) = dirs::audio_dir() {
-            return Ok(music_dir.join("meetily-recordings"));
-        }
-    }
-    
-    dirs::document_dir()
-        .map(|d| d.join("meetily-recordings"))
-        .ok_or_else(|| "Could not find recordings directory".to_string())
-}
+// get_recordings_dir removed — use crate::audio::recording_preferences::get_default_recordings_folder() instead
 
 /// Auto-retranscribe after recording stops (called from Rust, not a command)
 /// This is triggered automatically when a recording ends

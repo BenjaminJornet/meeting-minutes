@@ -1182,7 +1182,12 @@ export default function Home() {
     setSummaryError(null);
 
     try {
-      const fullTranscript = transcripts.map(t => t.text).join('\n');
+      const fullTranscript = transcripts.map(t => {
+        if (t.speaker) {
+          return `[${t.speaker}] ${t.text}`;
+        }
+        return t.text;
+      }).join('\n');
       if (!fullTranscript.trim()) {
         throw new Error('No transcript text available. Please add some text first.');
       }

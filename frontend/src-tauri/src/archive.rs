@@ -5,6 +5,7 @@ use log::info;
 use reqwest::multipart::{Form, Part};
 use std::fs;
 use chrono::Utc;
+use regex::Regex;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ArchiveResult {
@@ -252,13 +253,21 @@ pub async fn get_archivable_meetings() -> Result<Vec<ArchivableMeeting>, String>
                         if let Some(t) = json.get("title").and_then(|v| v.as_str()) {
                             title = t.to_string();
                         }
-                        if let Some(d) = json.get("date").and_then(|v| v.as_str()) {
+                        // Try created_at first (actual field in MeetingMetadata), then date
+                        if let Some(d) = json.get("created_at").and_then(|v| v.as_str()) {
+                            // created_at is an ISO timestamp like "2025-01-15T14:30:00Z"
+                            // Extract just the date part YYYY-MM-DD
+                            date = d[..10.min(d.len())].to_string();
+                        } else if let Some(d) = json.get("date").and_then(|v| v.as_str()) {
                             date = d.to_string();
                         } else {
-                            // Try to parse date from folder name YYYY-MM-DD_...
+                            // Try to extract date from folder name using regex
+                            // Folder format is: MeetingName_YYYY-MM-DD_HH-MM
                             let folder_name = path.file_name().unwrap_or_default().to_string_lossy();
-                            if folder_name.len() >= 10 {
-                                date = folder_name[0..10].to_string();
+                            if let Ok(re) = Regex::new(r"(\d{4}-\d{2}-\d{2})") {
+                                if let Some(caps) = re.captures(&folder_name) {
+                                    date = caps[1].to_string();
+                                }
                             }
                         }
                     }
