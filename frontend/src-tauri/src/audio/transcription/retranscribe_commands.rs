@@ -213,6 +213,8 @@ pub async fn retranscribe_audio_file<R: Runtime>(
     // Poll for completion
     let poll_client = reqwest::Client::new();
     let status_url = format!("{}/enhanced-transcribe/{}", backend_url, job_id);
+    let mut consecutive_not_found = 0u32;
+    const MAX_NOT_FOUND_RETRIES: u32 = 5;
     
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -225,10 +227,29 @@ pub async fn retranscribe_audio_file<R: Runtime>(
             }
         };
         
-        if !status_resp.status().is_success() {
+        if status_resp.status() == reqwest::StatusCode::NOT_FOUND {
+            consecutive_not_found += 1;
+            warn!("Job {} not found (404) - attempt {}/{}", job_id, consecutive_not_found, MAX_NOT_FOUND_RETRIES);
+            if consecutive_not_found >= MAX_NOT_FOUND_RETRIES {
+                return Ok(RetranscribeResult {
+                    success: false,
+                    transcript: None,
+                    error: Some(format!(
+                        "Job {} lost by backend (404 after {} attempts). The backend may have restarted. Please retry.",
+                        job_id, MAX_NOT_FOUND_RETRIES
+                    )),
+                    audio_duration_secs: None,
+                    processing_time_secs: start_time.elapsed().as_secs_f64(),
+                });
+            }
+            continue;
+        } else if !status_resp.status().is_success() {
              warn!("Poll error status: {}", status_resp.status());
              continue;
         }
+        
+        // Reset not-found counter on any successful response
+        consecutive_not_found = 0;
         
         let status: EnhancedStatusResponse = match status_resp.json().await {
             Ok(s) => s,

@@ -13,9 +13,58 @@ logger = logging.getLogger(__name__)
 ENHANCED_ASR_URL = os.getenv("ENHANCED_ASR_URL", "http://enhanced-asr:8000")
 WHISPER_SERVER_URL = os.getenv("WHISPER_SERVER_URL", "http://whisper-server:8178")
 
+# Persistent job state file — kept in the mounted data volume so it survives container restarts
+_JOBS_STATE_FILE = os.path.join(os.getenv("DATA_DIR", "/app/data"), "enhanced_jobs.json")
+
+
 class EnhancedTranscriptionManager:
     def __init__(self):
-        self.jobs = {}  # job_id -> {status, result, error, progress}
+        self.jobs: Dict[str, dict] = {}  # job_id -> {status, result, error, progress}
+        self._load_persisted_jobs()
+
+    # --- Persistence helpers ---------------------------------------------------
+
+    def _load_persisted_jobs(self):
+        """Load persisted job state from disk and mark any previously-running jobs as failed
+        (their asyncio tasks are gone after a process restart)."""
+        try:
+            if os.path.exists(_JOBS_STATE_FILE):
+                with open(_JOBS_STATE_FILE, "r") as f:
+                    self.jobs = json.load(f)
+                recovered = 0
+                for job_id, job in self.jobs.items():
+                    if job.get("status") == "processing":
+                        job["status"] = "failed"
+                        job["error"] = "Backend restarted while job was processing. Please retry."
+                        recovered += 1
+                if recovered:
+                    logger.warning(f"⚠️ Marked {recovered} stale processing job(s) as failed after restart")
+                    self._persist_jobs()
+                logger.info(f"📂 Loaded {len(self.jobs)} persisted enhanced-transcription job(s)")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not load persisted jobs: {e}")
+            self.jobs = {}
+
+    def _persist_jobs(self):
+        """Write current job state to disk (excluding heavy result payloads for completed jobs
+        older than 1 hour to keep the file small)."""
+        try:
+            os.makedirs(os.path.dirname(_JOBS_STATE_FILE), exist_ok=True)
+            # Shallow-copy each job; strip large 'result' from old completed jobs
+            now = time.time()
+            slim = {}
+            for jid, job in self.jobs.items():
+                j = dict(job)
+                age = now - j.get("created_at", now)
+                if j.get("status") == "completed" and age > 3600:
+                    j.pop("result", None)
+                slim[jid] = j
+            with open(_JOBS_STATE_FILE, "w") as f:
+                json.dump(slim, f)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not persist jobs: {e}")
+
+    # --- Public API ------------------------------------------------------------
 
     async def start_job(self, file_path: str, language: str = None) -> str:
         job_id = str(uuid.uuid4())
@@ -24,6 +73,7 @@ class EnhancedTranscriptionManager:
             "progress": 0,
             "created_at": time.time()
         }
+        self._persist_jobs()
         # Start processing in background
         asyncio.create_task(self._process_job(job_id, file_path, language))
         return job_id
@@ -324,12 +374,14 @@ class EnhancedTranscriptionManager:
 
             self.jobs[job_id]["status"] = "completed"
             self.jobs[job_id]["result"] = {"segments": final_segments}
+            self._persist_jobs()
             logger.info(f"🎉 Job {job_id} completed with {len(final_segments)} segments")
             
         except Exception as e:
             logger.error(f"❌ Job {job_id} failed: {e}", exc_info=True)
             self.jobs[job_id]["status"] = "failed"
             self.jobs[job_id]["error"] = str(e)
+            self._persist_jobs()
         finally:
             # Cleanup the uploaded file
             if os.path.exists(file_path):
