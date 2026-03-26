@@ -13,7 +13,83 @@ fn emit_import_progress<R: Runtime>(app: &AppHandle<R>, phase: &str, message: St
     let _ = app.emit("audio-import-progress", serde_json::json!({
         "phase": phase,
         "message": message,
+        "task_kind": "import",
+        "phase_progress": progress_for_phase(phase, None),
+        "overall_progress": compute_overall_progress(phase, progress_for_phase(phase, None), true),
     }));
+}
+
+fn emit_retranscribe_progress<R: Runtime>(
+    app: &AppHandle<R>,
+    phase: &str,
+    message: String,
+    audio_path: &str,
+    meeting_title: Option<String>,
+    job_id: Option<String>,
+    phase_progress: f64,
+) {
+    let overall_progress = compute_overall_progress(phase, phase_progress, false);
+    let _ = app.emit("retranscribe-progress", serde_json::json!({
+        "status": if phase == "completed" { "complete" } else if phase == "error" { "error" } else { "processing" },
+        "phase": phase,
+        "message": message,
+        "progress": phase_progress,
+        "phase_progress": phase_progress,
+        "overall_progress": overall_progress,
+        "audio_path": audio_path,
+        "meeting_title": meeting_title,
+        "job_id": job_id,
+        "task_kind": "retranscribe",
+    }));
+}
+
+fn progress_for_phase(phase: &str, explicit: Option<f64>) -> f64 {
+    explicit.unwrap_or(match phase {
+        "preparing" => 100.0,
+        "converting" => 100.0,
+        "uploading" => 0.0,
+        "queued" => 100.0,
+        "transcribing" => 0.0,
+        "saving" => 100.0,
+        "completed" => 100.0,
+        _ => 0.0,
+    })
+}
+
+fn compute_overall_progress(phase: &str, phase_progress: f64, import_profile: bool) -> f64 {
+    let weights: Vec<(&str, f64)> = if import_profile {
+        vec![
+            ("creating", 5.0),
+            ("converting", 10.0),
+            ("uploading", 30.0),
+            ("queued", 5.0),
+            ("transcribing", 40.0),
+            ("saving", 10.0),
+        ]
+    } else {
+        vec![
+            ("preparing", 10.0),
+            ("converting", 10.0),
+            ("uploading", 30.0),
+            ("queued", 5.0),
+            ("transcribing", 35.0),
+            ("saving", 10.0),
+        ]
+    };
+
+    if phase == "completed" {
+        return 100.0;
+    }
+
+    let mut completed = 0.0;
+    for (name, weight) in weights {
+        if name == phase {
+            return (completed + weight * (phase_progress.clamp(0.0, 100.0) / 100.0)).clamp(0.0, 100.0);
+        }
+        completed += weight;
+    }
+
+    phase_progress.clamp(0.0, 100.0)
 }
 
 /// Result of a re-transcription operation
@@ -79,8 +155,14 @@ pub async fn retranscribe_audio_file<R: Runtime>(
     language: Option<String>,
 ) -> Result<RetranscribeResult, String> {
     let start_time = std::time::Instant::now();
+    let audio_path_str = audio_path.clone();
+    let meeting_title = PathBuf::from(&audio_path_str)
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string());
     
-    info!("🔄 Starting enhanced re-transcription of: {}", audio_path);
+    info!("🔄 Starting enhanced re-transcription of: {}", audio_path_str);
     
     // Determine Backend URL
     // The frontend sends 'remote_url' which is typically the Whisper Server URL (port 8178).
@@ -104,21 +186,22 @@ pub async fn retranscribe_audio_file<R: Runtime>(
     
     info!("🌐 Using backend server: {}", backend_url);
     emit_import_progress(&app, "uploading", format!("Preparing remote transcription via {}...", backend_url));
+    emit_retranscribe_progress(&app, "preparing", format!("Preparing remote transcription via {}...", backend_url), &audio_path_str, meeting_title.clone(), None, 100.0);
     
     // Read the audio file
-    let audio_path = PathBuf::from(&audio_path);
-    if !audio_path.exists() {
+    let audio_path_buf = PathBuf::from(&audio_path_str);
+    if !audio_path_buf.exists() {
         return Ok(RetranscribeResult {
             success: false,
             transcript: None,
-            error: Some(format!("Audio file not found: {}", audio_path.display())),
+            error: Some(format!("Audio file not found: {}", audio_path_buf.display())),
             audio_duration_secs: None,
             processing_time_secs: start_time.elapsed().as_secs_f64(),
         });
     }
     
     // Check file extension and convert if needed
-    let extension = audio_path.extension()
+    let extension = audio_path_buf.extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
@@ -126,9 +209,14 @@ pub async fn retranscribe_audio_file<R: Runtime>(
     let wav_path = if extension != "wav" {
         info!("📦 Converting {} to WAV format...", extension);
         emit_import_progress(&app, "uploading", "Converting imported audio to WAV for remote processing...".to_string());
-        match convert_to_wav(&audio_path).await {
-            Ok(path) => path,
+        emit_retranscribe_progress(&app, "converting", "Converting audio to WAV for remote processing...".to_string(), &audio_path_str, meeting_title.clone(), None, 25.0);
+        match convert_to_wav(&audio_path_buf).await {
+            Ok(path) => {
+                emit_retranscribe_progress(&app, "converting", "Audio converted to WAV.".to_string(), &audio_path_str, meeting_title.clone(), None, 100.0);
+                path
+            },
             Err(e) => {
+                emit_retranscribe_progress(&app, "error", format!("Failed to convert audio: {}", e), &audio_path_str, meeting_title.clone(), None, 0.0);
                 return Ok(RetranscribeResult {
                     success: false,
                     transcript: None,
@@ -139,7 +227,7 @@ pub async fn retranscribe_audio_file<R: Runtime>(
             }
         }
     } else {
-        audio_path.clone()
+        audio_path_buf.clone()
     };
     
     // Read WAV file
@@ -158,6 +246,7 @@ pub async fn retranscribe_audio_file<R: Runtime>(
     
     info!("📤 Sending {} bytes to backend...", wav_data.len());
     emit_import_progress(&app, "uploading", format!("Uploading {:.1} MB to remote backend...", wav_data.len() as f64 / (1024.0 * 1024.0)));
+    emit_retranscribe_progress(&app, "uploading", format!("Uploading {:.1} MB to remote backend...", wav_data.len() as f64 / (1024.0 * 1024.0)), &audio_path_str, meeting_title.clone(), None, 10.0);
     
     // Create HTTP client
     // Timeout configuration:
@@ -220,6 +309,8 @@ pub async fn retranscribe_audio_file<R: Runtime>(
     let job_id = job_resp.job_id;
     info!("✅ Job started: {}", job_id);
     emit_import_progress(&app, "queued", format!("Remote job queued successfully (job {}).", job_id));
+    emit_retranscribe_progress(&app, "uploading", "Upload completed successfully.".to_string(), &audio_path_str, meeting_title.clone(), Some(job_id.clone()), 100.0);
+    emit_retranscribe_progress(&app, "queued", format!("Remote job queued successfully (job {}).", job_id), &audio_path_str, meeting_title.clone(), Some(job_id.clone()), 100.0);
 
     // Poll for completion
     let poll_client = reqwest::Client::new();
@@ -279,6 +370,15 @@ pub async fn retranscribe_audio_file<R: Runtime>(
             "progress": status.progress,
             "job_id": job_id
         }));
+        emit_retranscribe_progress(
+            &app,
+            "transcribing",
+            format!("Remote transcription in progress... {}%", status.progress.unwrap_or(0)),
+            &audio_path_str,
+            meeting_title.clone(),
+            Some(job_id.clone()),
+            status.progress.unwrap_or(0) as f64,
+        );
         emit_import_progress(
             &app,
             "transcribing",
@@ -293,9 +393,9 @@ pub async fn retranscribe_audio_file<R: Runtime>(
                 let json_str = serde_json::to_string(&result.segments).unwrap_or_default();
                 
                 // Save improved transcript to file
-                let audio_path_buf = PathBuf::from(&audio_path);
                 if let Some(meeting_folder) = audio_path_buf.parent() {
                     let improved_path = meeting_folder.join("transcripts_improved.json");
+                    emit_retranscribe_progress(&app, "saving", "Saving improved transcript...".to_string(), &audio_path_str, meeting_title.clone(), Some(job_id.clone()), 100.0);
                     let improved_json = serde_json::json!({
                         "version": "1.0",
                         "source": "enhanced_backend",
@@ -321,6 +421,7 @@ pub async fn retranscribe_audio_file<R: Runtime>(
                     processing_time_secs: start_time.elapsed().as_secs_f64(),
                 });
             } else {
+                emit_retranscribe_progress(&app, "error", "Job completed but no result found".to_string(), &audio_path_str, meeting_title.clone(), Some(job_id.clone()), 0.0);
                 return Ok(RetranscribeResult {
                     success: false,
                     transcript: None,
@@ -330,6 +431,7 @@ pub async fn retranscribe_audio_file<R: Runtime>(
                 });
             }
         } else if status.status == "failed" {
+            emit_retranscribe_progress(&app, "error", status.error.clone().unwrap_or_else(|| "Job failed".to_string()), &audio_path_str, meeting_title.clone(), Some(job_id.clone()), 0.0);
             return Ok(RetranscribeResult {
                 success: false,
                 transcript: None,

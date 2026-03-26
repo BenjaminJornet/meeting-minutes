@@ -6,6 +6,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, CheckCircle, XCircle, Loader2, FileAudio, Clock, HardDrive, FolderOpen, ExternalLink, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { computeWeightedProgress, getProgressLabel, RETRANSCRIBE_PROGRESS_WEIGHTS } from "@/lib/task-progress";
 
 interface RecordingInfo {
   meeting_name: string;
@@ -29,7 +31,27 @@ interface RetranscribeProgress {
     status: "idle" | "processing" | "success" | "error";
     error?: string;
     processingTime?: number;
+    phase?: string;
+    phaseProgress?: number;
+    overallProgress?: number;
+    message?: string;
+    meetingTitle?: string;
+    jobId?: string;
   };
+}
+
+interface RetranscribeDialogState {
+  isOpen: boolean;
+  isDismissed: boolean;
+  audioPath?: string;
+  meetingTitle?: string;
+  phase: string;
+  message: string;
+  phaseProgress: number;
+  overallProgress: number;
+  jobId?: string;
+  batchIndex?: number;
+  batchTotal?: number;
 }
 
 export default function RetranscribePanel() {
@@ -39,11 +61,68 @@ export default function RetranscribePanel() {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<RetranscribeProgress>({});
   const [remoteUrl, setRemoteUrl] = useState<string>("");
+  const [dialogState, setDialogState] = useState<RetranscribeDialogState>({
+    isOpen: false,
+    isDismissed: false,
+    phase: 'idle',
+    message: '',
+    phaseProgress: 0,
+    overallProgress: 0,
+  });
 
   // Load recordings and config on mount
   useEffect(() => {
     loadRecordings();
     loadConfig();
+  }, []);
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+
+    const setup = async () => {
+      const { listen } = await import('@tauri-apps/api/event');
+      cleanup = await listen<any>('retranscribe-progress', (event) => {
+        const payload = event.payload || {};
+        const audioPath = payload.audio_path as string | undefined;
+        const phase = payload.phase || 'processing';
+        const phaseProgress = typeof payload.phase_progress === 'number' ? payload.phase_progress : (typeof payload.progress === 'number' ? payload.progress : 0);
+        const overallProgress = typeof payload.overall_progress === 'number'
+          ? payload.overall_progress
+          : computeWeightedProgress(phase, phaseProgress, RETRANSCRIBE_PROGRESS_WEIGHTS);
+
+        if (audioPath) {
+          setProgress((prev) => ({
+            ...prev,
+            [audioPath]: {
+              ...(prev[audioPath] || { status: 'processing' }),
+              status: payload.status === 'error' ? 'error' : payload.status === 'complete' ? 'success' : 'processing',
+              phase,
+              phaseProgress,
+              overallProgress,
+              message: payload.message,
+              meetingTitle: payload.meeting_title,
+              jobId: payload.job_id,
+            }
+          }));
+        }
+
+        setDialogState((prev) => ({
+          ...prev,
+          isOpen: payload.status !== 'complete' && payload.status !== 'error' ? !prev.isDismissed : prev.isOpen,
+          isDismissed: payload.status === 'complete' || payload.status === 'error' ? false : prev.isDismissed,
+          audioPath: audioPath || prev.audioPath,
+          meetingTitle: payload.meeting_title || prev.meetingTitle,
+          phase,
+          message: payload.message || prev.message,
+          phaseProgress,
+          overallProgress,
+          jobId: payload.job_id || prev.jobId,
+        }));
+      });
+    };
+
+    setup();
+    return () => cleanup?.();
   }, []);
 
   const loadConfig = async () => {
@@ -117,8 +196,19 @@ export default function RetranscribePanel() {
     
     setProgress((prev) => ({
       ...prev,
-      [key]: { status: "processing" },
+      [key]: { status: "processing", phase: 'preparing', phaseProgress: 0, overallProgress: 0, message: 'Preparing remote retranscription...', meetingTitle: recording.meeting_name },
     }));
+
+    setDialogState({
+      isOpen: true,
+      isDismissed: false,
+      audioPath: recording.audio_path,
+      meetingTitle: recording.meeting_name,
+      phase: 'preparing',
+      message: 'Preparing remote retranscription...',
+      phaseProgress: 0,
+      overallProgress: 0,
+    });
 
     try {
       const result = await invoke<RetranscribeResult>("retranscribe_audio_file", {
@@ -132,9 +222,15 @@ export default function RetranscribePanel() {
           ...prev,
           [key]: { 
             status: "success", 
-            processingTime: result.processing_time_secs 
+            processingTime: result.processing_time_secs,
+            phase: 'completed',
+            phaseProgress: 100,
+            overallProgress: 100,
+            message: 'Re-transcription completed successfully.',
+            meetingTitle: recording.meeting_name,
           },
         }));
+        setDialogState(prev => ({ ...prev, meetingTitle: recording.meeting_name, phase: 'completed', message: 'Re-transcription completed successfully.', phaseProgress: 100, overallProgress: 100, isOpen: false, isDismissed: false }));
         
         // Optionally save transcript to file
         // Could also trigger AI summary here
@@ -143,7 +239,10 @@ export default function RetranscribePanel() {
           ...prev,
           [key]: { 
             status: "error", 
-            error: result.error || "Erreur inconnue" 
+            error: result.error || "Erreur inconnue",
+            phase: 'error',
+            message: result.error || "Erreur inconnue",
+            meetingTitle: recording.meeting_name,
           },
         }));
       }
@@ -152,7 +251,10 @@ export default function RetranscribePanel() {
         ...prev,
         [key]: { 
           status: "error", 
-          error: `${err}` 
+            error: `${err}`,
+            phase: 'error',
+            message: `${err}`,
+            meetingTitle: recording.meeting_name,
         },
       }));
     }
@@ -298,6 +400,16 @@ export default function RetranscribePanel() {
                         {status.error}
                       </p>
                     )}
+                    {isProcessing && (
+                      <div className="mt-2 space-y-1">
+                        <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                          <div className="h-full bg-blue-600 transition-all duration-500" style={{ width: `${Math.max(2, status?.overallProgress || 0)}%` }} />
+                        </div>
+                        <p className="text-xs text-blue-600">
+                          {status?.message || 'Processing...'} · {Math.round(status?.overallProgress || 0)}%
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 ml-4">
@@ -347,6 +459,46 @@ export default function RetranscribePanel() {
           </p>
         </div>
       )}
+
+      <Dialog open={dialogState.isOpen} onOpenChange={(open) => {
+        setDialogState(prev => ({
+          ...prev,
+          isOpen: open,
+          isDismissed: !open && prev.phase !== 'completed' && prev.phase !== 'error',
+        }));
+      }}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogTitle>Re-transcription in progress</DialogTitle>
+          <div className="space-y-4 py-2">
+            <div>
+              <div className="text-sm font-medium text-gray-900">{dialogState.meetingTitle || 'Remote retranscription'}</div>
+              <div className="text-sm text-gray-500 mt-1">{dialogState.message}</div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium text-blue-700">{getProgressLabel(dialogState.phase)}</span>
+                <span className="text-gray-500">{Math.round(dialogState.overallProgress)}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div className="h-full bg-blue-600 rounded-full transition-all duration-500" style={{ width: `${Math.max(2, dialogState.overallProgress)}%` }} />
+              </div>
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>Step progress</span>
+                <span>{Math.round(dialogState.phaseProgress)}%</span>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800">
+              The app is sending your recording to the remote backend, tracking the remote job, then saving the enhanced transcript locally.
+            </div>
+
+            {dialogState.jobId && (
+              <div className="text-xs text-gray-500 break-all">Job ID: {dialogState.jobId}</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

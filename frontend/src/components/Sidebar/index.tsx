@@ -26,6 +26,7 @@ import { MessageToast } from '../MessageToast';
 import Logo from '../Logo';
 import Info from '../Info';
 import { ComplianceNotification } from '../ComplianceNotification';
+import { computeWeightedProgress, getProgressLabel, IMPORT_PROGRESS_WEIGHTS, TaskProgressPayload } from '@/lib/task-progress';
 
 interface SidebarItem {
   id: string;
@@ -44,6 +45,8 @@ interface ImportProgressState {
   meetingTitle: string;
   folderPath?: string;
   meetingId?: string;
+  phaseProgress?: number;
+  overallProgress?: number;
 }
 
 const Sidebar: React.FC = () => {
@@ -86,7 +89,9 @@ const Sidebar: React.FC = () => {
     isDismissed: false,
     phase: 'idle',
     message: '',
-    meetingTitle: 'Imported audio'
+    meetingTitle: 'Imported audio',
+    phaseProgress: 0,
+    overallProgress: 0,
   });
 
   // State for edit modal
@@ -449,13 +454,7 @@ const Sidebar: React.FC = () => {
 
     const setup = async () => {
       const { listen } = await import('@tauri-apps/api/event');
-      cleanup = await listen<{
-        phase?: string;
-        message?: string;
-        meeting_title?: string;
-        folder_path?: string;
-        meeting_id?: string;
-      }>('audio-import-progress', async (event) => {
+      cleanup = await listen<TaskProgressPayload>('audio-import-progress', async (event) => {
         const payload = event.payload || {};
         setImportProgress(prev => ({
           isOpen: !prev.isDismissed && payload.phase !== 'completed' && payload.phase !== 'error',
@@ -465,6 +464,10 @@ const Sidebar: React.FC = () => {
           meetingTitle: payload.meeting_title || prev.meetingTitle,
           folderPath: payload.folder_path || prev.folderPath,
           meetingId: payload.meeting_id || prev.meetingId,
+          phaseProgress: typeof payload.phase_progress === 'number' ? payload.phase_progress : prev.phaseProgress,
+          overallProgress: typeof payload.overall_progress === 'number'
+            ? payload.overall_progress
+            : computeWeightedProgress(payload.phase || prev.phase, payload.phase_progress ?? prev.phaseProgress, IMPORT_PROGRESS_WEIGHTS),
         }));
 
         if (payload.phase === 'creating') {
@@ -491,7 +494,9 @@ const Sidebar: React.FC = () => {
         isDismissed: false,
         phase: 'selecting',
         message: 'Waiting for file selection...',
-        meetingTitle: 'Imported audio'
+        meetingTitle: 'Imported audio',
+        phaseProgress: 0,
+        overallProgress: 0,
       });
       const result = await invoke('import_audio_file_as_meeting') as {
         cancelled?: boolean;
@@ -516,6 +521,8 @@ const Sidebar: React.FC = () => {
           message: 'Audio imported successfully.',
           meetingTitle: title,
           meetingId: result.meeting_id,
+          phaseProgress: 100,
+          overallProgress: 100,
         });
         toast.success('Audio imported and transcribed');
         router.push(`/meeting-details?id=${result.meeting_id}`);
@@ -662,16 +669,13 @@ const Sidebar: React.FC = () => {
   };
 
   const importPhaseLabel = useMemo(() => {
-    switch (importProgress.phase) {
-      case 'creating': return 'Creating meeting';
-      case 'converting': return 'Preparing audio';
-      case 'uploading': return 'Uploading to remote server';
-      case 'queued': return 'Remote job queued';
-      case 'transcribing': return 'Transcribing';
-      case 'saving': return 'Saving meeting';
-      default: return 'Processing import';
-    }
+    return getProgressLabel(importProgress.phase);
   }, [importProgress.phase]);
+
+  const importOverallProgress = useMemo(() => {
+    if (typeof importProgress.overallProgress === 'number') return importProgress.overallProgress;
+    return computeWeightedProgress(importProgress.phase, importProgress.phaseProgress, IMPORT_PROGRESS_WEIGHTS);
+  }, [importProgress.overallProgress, importProgress.phase, importProgress.phaseProgress]);
 
   const pendingImportItem = useMemo<SidebarItem | null>(() => {
     if (!isImportingAudio || !importProgress.meetingTitle) return null;
@@ -1094,10 +1098,14 @@ const Sidebar: React.FC = () => {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium text-blue-700">{importPhaseLabel}</span>
-                <span className="text-gray-500">Background task</span>
+                <span className="text-gray-500">{Math.round(importOverallProgress)}%</span>
               </div>
               <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                <div className="h-full w-1/2 bg-blue-600 animate-pulse rounded-full" />
+                <div className="h-full bg-blue-600 rounded-full transition-all duration-500" style={{ width: `${Math.max(2, importOverallProgress)}%` }} />
+              </div>
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>{importProgress.message}</span>
+                <span>Step {Math.round(importProgress.phaseProgress || 0)}%</span>
               </div>
             </div>
 

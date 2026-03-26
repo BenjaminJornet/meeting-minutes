@@ -22,6 +22,9 @@ struct ImportProgressPayload<'a> {
     meeting_title: Option<&'a str>,
     folder_path: Option<String>,
     meeting_id: Option<&'a str>,
+    task_kind: &'a str,
+    phase_progress: f64,
+    overall_progress: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -279,6 +282,18 @@ fn emit_progress<R: Runtime>(
     folder_path: Option<String>,
     meeting_id: Option<&str>,
 ) {
+    let phase_progress = match phase {
+        "creating" => 100.0,
+        "converting" => 100.0,
+        "uploading" => 0.0,
+        "queued" => 100.0,
+        "transcribing" => 0.0,
+        "saving" => 100.0,
+        "completed" => 100.0,
+        _ => 0.0,
+    };
+    let overall_progress = compute_overall_progress(phase, phase_progress);
+
     let _ = app.emit(
         "audio-import-progress",
         ImportProgressPayload {
@@ -287,8 +302,59 @@ fn emit_progress<R: Runtime>(
             meeting_title,
             folder_path,
             meeting_id,
+            task_kind: "import",
+            phase_progress,
+            overall_progress,
         },
     );
+}
+
+fn emit_progress_with_percent<R: Runtime>(
+    app: &AppHandle<R>,
+    phase: &str,
+    message: String,
+    meeting_title: Option<&str>,
+    folder_path: Option<String>,
+    meeting_id: Option<&str>,
+    phase_progress: f64,
+) {
+    let _ = app.emit(
+        "audio-import-progress",
+        ImportProgressPayload {
+            phase,
+            message: &message,
+            meeting_title,
+            folder_path,
+            meeting_id,
+            task_kind: "import",
+            phase_progress,
+            overall_progress: compute_overall_progress(phase, phase_progress),
+        },
+    );
+}
+
+fn compute_overall_progress(phase: &str, phase_progress: f64) -> f64 {
+    let weights = [
+        ("creating", 5.0),
+        ("converting", 10.0),
+        ("uploading", 30.0),
+        ("queued", 5.0),
+        ("transcribing", 40.0),
+        ("saving", 10.0),
+    ];
+
+    if phase == "completed" {
+        return 100.0;
+    }
+
+    let mut completed = 0.0;
+    for (name, weight) in weights {
+        if name == phase {
+            return (completed + weight * (phase_progress.clamp(0.0, 100.0) / 100.0)).clamp(0.0, 100.0);
+        }
+        completed += weight;
+    }
+    phase_progress.clamp(0.0, 100.0)
 }
 
 fn ensure_audio_mp4(input: &Path, output: &Path) -> Result<bool, String> {
@@ -445,6 +511,15 @@ async fn transcribe_remote<R: Runtime>(
     audio_path: &Path,
     remote_url: Option<String>,
 ) -> Result<Vec<TranscriptSegment>, String> {
+    emit_progress_with_percent(
+        app,
+        "uploading",
+        "Uploading imported audio to remote backend...".to_string(),
+        None,
+        None,
+        None,
+        5.0,
+    );
     let result = crate::audio::transcription::retranscribe_commands::retranscribe_audio_file(
         app.clone(),
         audio_path.to_string_lossy().to_string(),
