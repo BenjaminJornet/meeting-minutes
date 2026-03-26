@@ -14,10 +14,12 @@ fn load_env_file() {
     let possible_paths: Vec<PathBuf> = vec![
         // 1. Project root (centralized config) - highest priority
         PathBuf::from("../../.env"),
+        // 1b. Frontend root .env (common dev setup for this repo)
+        PathBuf::from("../.env"),
         // 2. Current directory (dev mode)
         PathBuf::from(".env"),
-        // 2b. Parent directory (frontend root)
-        PathBuf::from("../.env"),
+        // 2b. Tauri crate sibling frontend/.env when launched from repo root or src-tauri
+        PathBuf::from("frontend/.env"),
         // 3. Executable's directory (bundled app)
         std::env::current_exe()
             .ok()
@@ -51,8 +53,6 @@ fn load_env_file() {
             }
         }
     }
-    
-    eprintln!("ℹ️ No .env file found - using defaults or saved settings");
 }
 
 fn main() {

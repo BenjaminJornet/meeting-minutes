@@ -9,6 +9,13 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{command, AppHandle, Emitter, Runtime};
 
+fn emit_import_progress<R: Runtime>(app: &AppHandle<R>, phase: &str, message: String) {
+    let _ = app.emit("audio-import-progress", serde_json::json!({
+        "phase": phase,
+        "message": message,
+    }));
+}
+
 /// Result of a re-transcription operation
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RetranscribeResult {
@@ -96,6 +103,7 @@ pub async fn retranscribe_audio_file<R: Runtime>(
     };
     
     info!("🌐 Using backend server: {}", backend_url);
+    emit_import_progress(&app, "uploading", format!("Preparing remote transcription via {}...", backend_url));
     
     // Read the audio file
     let audio_path = PathBuf::from(&audio_path);
@@ -117,6 +125,7 @@ pub async fn retranscribe_audio_file<R: Runtime>(
     
     let wav_path = if extension != "wav" {
         info!("📦 Converting {} to WAV format...", extension);
+        emit_import_progress(&app, "uploading", "Converting imported audio to WAV for remote processing...".to_string());
         match convert_to_wav(&audio_path).await {
             Ok(path) => path,
             Err(e) => {
@@ -148,6 +157,7 @@ pub async fn retranscribe_audio_file<R: Runtime>(
     };
     
     info!("📤 Sending {} bytes to backend...", wav_data.len());
+    emit_import_progress(&app, "uploading", format!("Uploading {:.1} MB to remote backend...", wav_data.len() as f64 / (1024.0 * 1024.0)));
     
     // Create HTTP client
     // Timeout configuration:
@@ -209,6 +219,7 @@ pub async fn retranscribe_audio_file<R: Runtime>(
     let job_resp: EnhancedJobResponse = response.json().await.map_err(|e| format!("Failed to parse job response: {}", e))?;
     let job_id = job_resp.job_id;
     info!("✅ Job started: {}", job_id);
+    emit_import_progress(&app, "queued", format!("Remote job queued successfully (job {}).", job_id));
 
     // Poll for completion
     let poll_client = reqwest::Client::new();
@@ -268,6 +279,14 @@ pub async fn retranscribe_audio_file<R: Runtime>(
             "progress": status.progress,
             "job_id": job_id
         }));
+        emit_import_progress(
+            &app,
+            "transcribing",
+            format!(
+                "Remote transcription in progress... {}%",
+                status.progress.unwrap_or(0)
+            ),
+        );
 
         if status.status == "completed" {
             if let Some(result) = status.result {

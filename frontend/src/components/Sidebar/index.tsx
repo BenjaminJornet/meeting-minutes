@@ -36,6 +36,16 @@ interface SidebarItem {
   speakers?: string[];
 }
 
+interface ImportProgressState {
+  isOpen: boolean;
+  isDismissed: boolean;
+  phase: string;
+  message: string;
+  meetingTitle: string;
+  folderPath?: string;
+  meetingId?: string;
+}
+
 const Sidebar: React.FC = () => {
   const router = useRouter();
   const pathname = usePathname();
@@ -52,7 +62,8 @@ const Sidebar: React.FC = () => {
     isSearching,
     meetings,
     setMeetings,
-    serverAddress
+    serverAddress,
+    refetchMeetings
   } = useSidebar();
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['meetings']));
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -69,6 +80,14 @@ const Sidebar: React.FC = () => {
     model: 'large-v3',
   });
   const [settingsSaveSuccess, setSettingsSaveSuccess] = useState<boolean | null>(null);
+  const [isImportingAudio, setIsImportingAudio] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgressState>({
+    isOpen: false,
+    isDismissed: false,
+    phase: 'idle',
+    message: '',
+    meetingTitle: 'Imported audio'
+  });
 
   // State for edit modal
   const [editModalState, setEditModalState] = useState<{ isOpen: boolean; meetingId: string | null; currentTitle: string }>({
@@ -425,6 +444,102 @@ const Sidebar: React.FC = () => {
     setExpandedFolders(newExpanded);
   };
 
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+
+    const setup = async () => {
+      const { listen } = await import('@tauri-apps/api/event');
+      cleanup = await listen<{
+        phase?: string;
+        message?: string;
+        meeting_title?: string;
+        folder_path?: string;
+        meeting_id?: string;
+      }>('audio-import-progress', async (event) => {
+        const payload = event.payload || {};
+        setImportProgress(prev => ({
+          isOpen: !prev.isDismissed && payload.phase !== 'completed' && payload.phase !== 'error',
+          isDismissed: payload.phase === 'completed' || payload.phase === 'error' ? false : prev.isDismissed,
+          phase: payload.phase || prev.phase,
+          message: payload.message || prev.message,
+          meetingTitle: payload.meeting_title || prev.meetingTitle,
+          folderPath: payload.folder_path || prev.folderPath,
+          meetingId: payload.meeting_id || prev.meetingId,
+        }));
+
+        if (payload.phase === 'creating') {
+          await refetchMeetings();
+        }
+
+        if (payload.phase === 'error' && payload.message) {
+          toast.error('Audio import failed', { description: payload.message });
+        }
+      });
+    };
+
+    setup();
+    return () => cleanup?.();
+  }, [refetchMeetings]);
+
+  const handleImportAudio = useCallback(async () => {
+    if (isImportingAudio) return;
+
+    try {
+      setIsImportingAudio(true);
+      setImportProgress({
+        isOpen: true,
+        isDismissed: false,
+        phase: 'selecting',
+        message: 'Waiting for file selection...',
+        meetingTitle: 'Imported audio'
+      });
+      const result = await invoke('import_audio_file_as_meeting') as {
+        cancelled?: boolean;
+        meeting_id?: string;
+        meeting_title?: string;
+      };
+
+      if (result?.cancelled) {
+        setImportProgress(prev => ({ ...prev, isOpen: false, isDismissed: false, phase: 'cancelled', message: '' }));
+        return;
+      }
+
+      await refetchMeetings();
+
+      if (result?.meeting_id) {
+        const title = result.meeting_title || 'Imported meeting';
+        setCurrentMeeting({ id: result.meeting_id, title });
+        setImportProgress({
+          isOpen: false,
+          isDismissed: false,
+          phase: 'completed',
+          message: 'Audio imported successfully.',
+          meetingTitle: title,
+          meetingId: result.meeting_id,
+        });
+        toast.success('Audio imported and transcribed');
+        router.push(`/meeting-details?id=${result.meeting_id}`);
+      } else {
+        setImportProgress(prev => ({ ...prev, isOpen: false, isDismissed: false, phase: 'error', message: 'Import completed but no meeting was returned' }));
+        toast.error('Import completed but no meeting was returned');
+      }
+    } catch (error) {
+      console.error('Failed to import audio:', error);
+      setImportProgress(prev => ({
+        ...prev,
+        isOpen: false,
+        isDismissed: false,
+        phase: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      }));
+      toast.error('Failed to import audio', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsImportingAudio(false);
+    }
+  }, [isImportingAudio, refetchMeetings, router, setCurrentMeeting]);
+
   // Expose setShowModelSettings to window for Rust tray to call
   useEffect(() => {
     (window as any).openSettings = () => {
@@ -487,6 +602,21 @@ const Sidebar: React.FC = () => {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                onClick={handleImportAudio}
+                disabled={isImportingAudio}
+                className={`p-2 rounded-lg transition-colors duration-150 ${isImportingAudio ? 'bg-blue-100 cursor-wait' : 'hover:bg-gray-100'}`}
+              >
+                <Plus className={`w-5 h-5 ${isImportingAudio ? 'text-blue-600 animate-pulse' : 'text-gray-600'}`} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>{isImportingAudio ? 'Importing audio...' : 'Import audio'}</p>
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
                 onClick={() => {
                   if (isCollapsed) toggleCollapse();
                   toggleFolder('meetings');
@@ -531,10 +661,36 @@ const Sidebar: React.FC = () => {
     return searchResults.find(result => result.id === itemId);
   };
 
+  const importPhaseLabel = useMemo(() => {
+    switch (importProgress.phase) {
+      case 'creating': return 'Creating meeting';
+      case 'converting': return 'Preparing audio';
+      case 'uploading': return 'Uploading to remote server';
+      case 'queued': return 'Remote job queued';
+      case 'transcribing': return 'Transcribing';
+      case 'saving': return 'Saving meeting';
+      default: return 'Processing import';
+    }
+  }, [importProgress.phase]);
+
+  const pendingImportItem = useMemo<SidebarItem | null>(() => {
+    if (!isImportingAudio || !importProgress.meetingTitle) return null;
+    return {
+      id: `pending-import-${importProgress.folderPath || importProgress.meetingTitle}`,
+      title: `${importProgress.meetingTitle} · processing...`,
+      type: 'file',
+      date: new Date().toISOString(),
+      speakers: [],
+    };
+  }, [importProgress.folderPath, importProgress.meetingTitle, isImportingAudio]);
+
+  const canReopenImportDialog = isImportingAudio || (importProgress.phase !== 'idle' && importProgress.phase !== 'completed' && importProgress.phase !== 'cancelled');
+
   const renderItem = (item: SidebarItem, depth = 0) => {
     const isExpanded = expandedFolders.has(item.id);
     const paddingLeft = `${depth * 12 + 12}px`;
     const isActive = item.type === 'file' && currentMeeting?.id === item.id;
+    const isPendingImport = item.id.startsWith('pending-import-');
     const isMeetingItem = item.id.includes('-') && !item.id.startsWith('intro-call');
 
     // Check if this item has a matching transcript snippet
@@ -559,6 +715,9 @@ const Sidebar: React.FC = () => {
             if (item.type === 'folder') {
               toggleFolder(item.id);
             } else {
+              if (isPendingImport) {
+                return;
+              }
               setCurrentMeeting({ id: item.id, title: item.title });
               const basePath = item.id.startsWith('intro-call') ? '/' :
                 item.id.includes('-') ? `/meeting-details?id=${item.id}` : `/notes/${item.id}`;
@@ -588,7 +747,11 @@ const Sidebar: React.FC = () => {
           ) : (
             <div className="flex flex-col w-full">
               <div className="flex items-center w-full">
-                {isMeetingItem ? (
+                {isPendingImport ? (
+                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-blue-100">
+                    <Plus className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+                  </div>
+                ) : isMeetingItem ? (
                   <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-gray-100">
                     <File className="w-3.5 h-3.5 text-gray-600" />
                   </div>
@@ -598,7 +761,7 @@ const Sidebar: React.FC = () => {
                   </div>
                 )}
                 <span className="flex-1 break-words">{item.title}</span>
-                {isMeetingItem && (
+                {isMeetingItem && !isPendingImport && (
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                     <button
                       onClick={(e) => {
@@ -625,7 +788,7 @@ const Sidebar: React.FC = () => {
               </div>
 
               {/* Metadata Chips (Date & Speakers) */}
-              {isMeetingItem && (item.date || (item.speakers && item.speakers.length > 0)) && (
+              {isMeetingItem && !isPendingImport && (item.date || (item.speakers && item.speakers.length > 0)) && (
                 <div className="flex flex-wrap gap-1 mt-1 ml-8">
                   {item.date && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
@@ -655,6 +818,12 @@ const Sidebar: React.FC = () => {
               {hasTranscriptMatch && (
                 <div className="mt-1 ml-8 text-xs text-gray-500 bg-yellow-50 p-1.5 rounded border border-yellow-100 line-clamp-2">
                   <span className="font-medium text-yellow-600">Match:</span> {matchingResult.matchContext}
+                </div>
+              )}
+
+              {isPendingImport && (
+                <div className="mt-1 ml-8 text-xs text-blue-600 bg-blue-50 p-1.5 rounded border border-blue-100">
+                  Processing in background: {importProgress.message || 'Preparing imported audio...'}
                 </div>
               )}
             </div>
@@ -758,6 +927,35 @@ const Sidebar: React.FC = () => {
                     >
                       <Calendar className="w-4 h-4 mr-2 text-gray-600" />
                       <span className="text-gray-700">{item.title}</span>
+                      {item.id === 'meetings' && (
+                        <div className="ml-auto flex items-center gap-1">
+                          {canReopenImportDialog && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setImportProgress(prev => ({ ...prev, isOpen: true, isDismissed: false }));
+                              }}
+                              className="px-2 py-1 text-xs rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100"
+                              aria-label="Show import progress"
+                              title="Show import progress"
+                            >
+                              Status
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleImportAudio();
+                            }}
+                            disabled={isImportingAudio}
+                            className="p-1 rounded-md hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            aria-label="Import audio file"
+                            title="Import audio file"
+                          >
+                            <Plus className={`w-4 h-4 ${isImportingAudio ? 'text-blue-600 animate-pulse' : 'text-gray-600 hover:text-blue-600'}`} />
+                          </button>
+                        </div>
+                      )}
                       {searchQuery && item.id === 'meetings' && isSearching && (
                         <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
                       )}
@@ -774,7 +972,7 @@ const Sidebar: React.FC = () => {
                   .filter(item => item.type === 'folder' && expandedFolders.has(item.id) && item.children)
                   .map(item => (
                     <div key={`${item.id}-children`} className="mx-3">
-                      {item.children!.map(child => renderItem(child, 1))}
+                      {[...(pendingImportItem ? [pendingImportItem] : []), ...item.children!].map(child => renderItem(child, 1))}
                     </div>
                   ))}
               </div>
@@ -875,6 +1073,44 @@ const Sidebar: React.FC = () => {
               Save
             </button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={importProgress.isOpen} onOpenChange={(open) => {
+        setImportProgress(prev => ({
+          ...prev,
+          isOpen: open,
+          isDismissed: !open && (isImportingAudio || prev.phase === 'uploading' || prev.phase === 'queued' || prev.phase === 'transcribing' || prev.phase === 'saving'),
+        }));
+      }}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogTitle>Import audio in progress</DialogTitle>
+          <div className="space-y-4 py-2">
+            <div>
+              <div className="text-sm font-medium text-gray-900">{importProgress.meetingTitle}</div>
+              <div className="text-sm text-gray-500 mt-1">{importProgress.message}</div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium text-blue-700">{importPhaseLabel}</span>
+                <span className="text-gray-500">Background task</span>
+              </div>
+              <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div className="h-full w-1/2 bg-blue-600 animate-pulse rounded-full" />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800">
+              The meeting folder has been created and the app is processing your audio. You can follow the current step here while the import finishes.
+            </div>
+
+            {importProgress.folderPath && (
+              <div className="text-xs text-gray-500 break-all">
+                Folder: {importProgress.folderPath}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

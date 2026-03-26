@@ -468,8 +468,8 @@ pub fn get_language_preference_internal() -> Option<String> {
 }
 
 pub fn run() {
-    // Load environment variables from .env file
-    dotenv::dotenv().ok();
+    // .env loading is already handled in src/main.rs via load_env_file(),
+    // which tries multiple locations including project and app-specific paths.
 
     log::set_max_level(log::LevelFilter::Info);
 
@@ -712,6 +712,7 @@ pub fn run() {
             audio::recording_preferences::get_current_audio_backend,
             audio::recording_preferences::set_audio_backend,
             audio::recording_preferences::get_audio_backend_info,
+            audio::import_commands::import_audio_file_as_meeting,
             // Re-transcription commands (for post-recording high-quality transcription)
             audio::transcription::retranscribe_commands::retranscribe_audio_file,
             audio::transcription::retranscribe_commands::list_recordings_for_retranscription,
