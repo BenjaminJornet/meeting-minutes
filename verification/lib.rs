@@ -49,3 +49,6 @@ pub mod api {
 
 #[cfg(test)]
 mod integration;
+
+#[path = "../frontend/src-tauri/src/runtime_env.rs"]
+pub mod runtime_env;

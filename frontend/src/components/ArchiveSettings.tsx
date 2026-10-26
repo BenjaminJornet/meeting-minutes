@@ -21,6 +21,8 @@ export function ArchiveSettings() {
   const [meetings, setMeetings] = useState<ArchivableMeeting[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [processingAction, setProcessingAction] = useState<'archive' | 'restore' | 'cleanup' | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cleanupPreview, setCleanupPreview] = useState<{meeting: ArchivableMeeting; files: string[]; bytes: number} | null>(null);
 
@@ -66,6 +68,8 @@ export function ArchiveSettings() {
 
   const handleArchive = async (meeting: ArchivableMeeting) => {
     setError(null);
+    setSuccess(null);
+    setProcessingAction('archive');
     setCleanupPreview(null);
     setProcessingId(meeting.id);
     try {
@@ -82,18 +86,48 @@ export function ArchiveSettings() {
       setError(String(e));
     } finally {
       setProcessingId(null);
+      setProcessingAction(null);
       await fetchMeetings();
     }
   };
 
   const previewCleanup = async (meeting: ArchivableMeeting) => {
+    setError(null);
+    setSuccess(null);
     try {
       const inventory = await invoke<{files: string[]; bytes: number}>('get_archive_audio_inventory', { meetingFolderPath: meeting.folder_path });
       setCleanupPreview({meeting, ...inventory});
     } catch (error) { setError(String(error)); }
   };
 
+  const handleCleanup = async (meeting: ArchivableMeeting) => {
+    setError(null);
+    setSuccess(null);
+    setCleanupPreview(null);
+    setProcessingId(meeting.id);
+    setProcessingAction('cleanup');
+    try {
+      const res = await invoke<{success: boolean, error?: string}>('cleanup_archived_audio', {
+        meetingFolderPath: meeting.folder_path
+      });
+      if (res.success) {
+        setSuccess('Audios locaux supprimés. Transcriptions et comptes rendus conservés.');
+      } else {
+        setError(res.error || 'La suppression des audios locaux a échoué.');
+      }
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setProcessingId(null);
+      setProcessingAction(null);
+      await fetchMeetings();
+    }
+  };
+
   const handleRestore = async (meeting: ArchivableMeeting) => {
+    setError(null);
+    setSuccess(null);
+    setProcessingAction('restore');
     setProcessingId(meeting.id);
     try {
       const res = await invoke<{success: boolean, error?: string}>('restore_meeting', {
@@ -109,6 +143,7 @@ export function ArchiveSettings() {
       setError(String(e));
     } finally {
       setProcessingId(null);
+      setProcessingAction(null);
     }
   };
 
@@ -117,9 +152,9 @@ export function ArchiveSettings() {
       {cleanupPreview && (
         <div role="dialog" aria-label="Nettoyer les audios archivés" className="p-4 border rounded bg-blue-50 space-y-3">
           <p>Nettoyer {cleanupPreview.files.length} fichiers audio ({(cleanupPreview.bytes / 1e6).toFixed(1)} Mo) ?</p>
-          <p className="text-sm">L’audio final distant sera vérifié avant toute suppression. Les transcriptions et comptes rendus sont conservés.</p>
+          <p className="text-sm">Les fichiers audio locaux seront supprimés sans vérification distante. Les transcriptions et comptes rendus sont conservés.</p>
           <ul className="text-xs max-h-40 overflow-auto">{cleanupPreview.files.map(file => <li key={file}>{file}</li>)}</ul>
-          <button onClick={() => handleArchive(cleanupPreview.meeting)} className="px-3 py-2 bg-blue-600 text-white rounded">Vérifier et nettoyer</button>
+          <button onClick={() => handleCleanup(cleanupPreview.meeting)} disabled={!!processingId} className="px-3 py-2 bg-blue-600 text-white rounded">Supprimer les audios locaux</button>
           <button onClick={() => setCleanupPreview(null)} className="px-3 py-2">Annuler</button>
         </div>
       )}
@@ -158,6 +193,9 @@ export function ArchiveSettings() {
           <button onClick={() => setError(null)} className="ml-auto text-xs underline">Dismiss</button>
         </div>
       )}
+
+      {processingAction === 'cleanup' && <p role="status" className="text-sm text-blue-700">Suppression des audios locaux…</p>}
+      {success && <p role="status" className="p-3 rounded-md text-sm bg-green-50 text-green-700">{success}</p>}
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <div className="grid grid-cols-12 gap-4 p-3 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase">
@@ -234,7 +272,7 @@ export function ArchiveSettings() {
                       disabled={!!processingId}
                       className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-md hover:bg-blue-100 disabled:opacity-50 transition-colors"
                     >
-                      {processingId === meeting.id ? (
+                      {processingId === meeting.id && processingAction === 'restore' ? (
                         <RefreshCw size={12} className="animate-spin" />
                       ) : (
                         <Download size={12} />
@@ -247,7 +285,7 @@ export function ArchiveSettings() {
                       disabled={!!processingId}
                       className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50 transition-colors"
                     >
-                      {processingId === meeting.id ? (
+                      {processingId === meeting.id && processingAction === 'archive' ? (
                         <RefreshCw size={12} className="animate-spin" />
                       ) : (
                         <Archive size={12} />

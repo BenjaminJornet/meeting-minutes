@@ -316,6 +316,54 @@ fn decodable_mp4() -> Vec<u8> {
     fs::read(file).unwrap()
 }
 
+#[cfg(unix)]
+#[test]
+fn manual_cleanup_failure_remains_resumable_without_remote_verification() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let checkpoint = dir.path().join(".checkpoints");
+    fs::create_dir(&checkpoint).unwrap();
+    fs::write(checkpoint.join("leftover.wav"), b"audio").unwrap();
+    write_metadata(dir.path(), &json!({"is_archived":true})).unwrap();
+    fs::set_permissions(&checkpoint, fs::Permissions::from_mode(0o500)).unwrap();
+    let result = crate::archive_core::cleanup_archived_audio(dir.path());
+    fs::set_permissions(&checkpoint, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(result.unwrap_err().starts_with("audio_cleanup_failed:"), "run as an unprivileged user");
+    assert_eq!(read_metadata(dir.path()).unwrap()["archive_state"], "cleanup_pending");
+    crate::archive_core::cleanup_archived_audio(dir.path()).unwrap();
+    assert!(crate::meeting_files::audio_inventory(dir.path()).unwrap().is_empty());
+    assert_eq!(read_metadata(dir.path()).unwrap()["archive_state"], "archived");
+}
+
+#[tokio::test]
+async fn legacy_archive_with_trailing_index_decodes_before_cleanup() {
+    let dir = tempfile::tempdir().unwrap();
+    let audio = dir.path().join("fixture.mp4");
+    // Match the historical concat output: a sizable mdat precedes moov.
+    let status = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=10", "-c:a", "aac"])
+        .arg(&audio).status().unwrap();
+    assert!(status.success());
+    let body = fs::read(&audio).unwrap();
+    assert!(body.len() > 32768);
+    let mdat = body.windows(4).position(|w| w == b"mdat").unwrap();
+    let moov = body.windows(4).position(|w| w == b"moov").unwrap();
+    assert!(moov > mdat);
+    fs::remove_file(audio).unwrap();
+    fs::write(dir.path().join("audio.temp.wav"), b"legacy residual").unwrap();
+    fs::write(dir.path().join("transcripts.json"), b"synthetic transcript").unwrap();
+    write_metadata(dir.path(), &json!({"is_archived":true})).unwrap();
+    let (url, requests, task) = server(vec![(200, body)]).await;
+    ArchiveClient::new(url.clone(), url, "test".into()).unwrap().archive(dir.path()).await.unwrap();
+    task.await.unwrap();
+    assert!(crate::meeting_files::audio_inventory(dir.path()).unwrap().is_empty());
+    assert_eq!(fs::read(dir.path().join("transcripts.json")).unwrap(), b"synthetic transcript");
+    let metadata = read_metadata(dir.path()).unwrap();
+    assert_eq!(metadata["archive_state"], "archived");
+    assert!(metadata["archive_proof"]["sha256"].is_string());
+    assert_eq!(requests.lock().unwrap().len(), 1);
+}
+
 #[tokio::test]
 async fn legacy_archive_with_only_fake_mp4_boxes_preserves_residuals() {
     let dir = tempfile::tempdir().unwrap();

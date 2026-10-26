@@ -777,6 +777,7 @@ pub fn run() {
             summary::commands::api_save_summary_options,
             archive::archive_meeting,
             archive::get_archive_audio_inventory,
+            archive::cleanup_archived_audio,
             archive::restore_meeting,
             archive::get_archivable_meetings,
             // System settings commands

@@ -77,8 +77,7 @@
         ],
         "resources": [
             "templates/*.json",
-            "templates/fr/*.json",
-            ".env"
+            "templates/fr/*.json"
         ]
     }
 }

@@ -54,6 +54,13 @@ pub async fn get_archive_audio_inventory(meeting_folder_path: String) -> Result<
     inventory(&owned_folder(&meeting_folder_path).await?)
 }
 
+#[command]
+pub async fn cleanup_archived_audio(meeting_folder_path: String) -> Result<ArchiveResult, String> {
+    let folder = owned_folder(&meeting_folder_path).await?;
+    let result = crate::archive_core::cleanup_archived_audio(&folder);
+    Ok(ArchiveResult { success: result.is_ok(), error: result.err() })
+}
+
 /// List meetings eligible for archiving (> 1 month old)
 #[command]
 pub async fn get_archivable_meetings() -> Result<Vec<ArchivableMeeting>, String> {

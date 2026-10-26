@@ -54,6 +54,34 @@ version control. `.playwright-mcp/`, `verification/local/`, and benchmark input 
 result directories are ignored. The browser scenario reported an existing Yjs
 duplicate-import warning and a missing model-list key in its fixture.
 
+## Packaged runtime configuration regression
+
+`runtime_env` tests verify release startup independently of the launch directory,
+configuration precedence, and rejection of partially malformed files. Explicit
+process variables take precedence over private user configuration; new bundles
+exclude `.env`. See the Windows handoff for platform-specific runtime locations.
+
+A native macOS cleanup smoke used an isolated duplicate of a legacy residual WAV
+and the existing restoration webhook. The application streamed and decoded the
+remote MP4, persisted its proof, removed the fixture audio, and preserved the
+transcript hash. This validates one legacy cleanup path, not every archive or
+platform. Real endpoints, keys, filenames, and recordings are kept out of the
+repository.
+
+Historical restoration and verified archive operations support MP4 indexes
+located after the media data. A private
+loopback HTTP endpoint serves byte ranges from a RAM buffer so FFmpeg can seek
+without writing a temporary recording. The buffer is capped at 512 MiB; exceeding
+that cap or failing decoding preserves every local audio file. The listener and
+buffer are released on completion, failure, or cancellation. New checkpoint
+merges use `+faststart` to place the MP4 index before media data.
+
+A second native macOS smoke reproduced a legacy MP4 rejected by the pipe decoder
+because its `moov` index followed `mdat`. Seekable verification decoded the same
+remote bytes successfully and removed the isolated duplicate WAV. Transcript and
+original WAV hashes were unchanged. Automated regressions cover the trailing
+index, byte ranges, bounded memory, and preservation of invalid archives.
+
 ## Full application check
 
 The former `esaxx-rs` fork is unavailable. Its exact commit,
@@ -123,6 +151,16 @@ two additions. These assertions do not validate every sentence or establish that
 omissions, owner attribution, and deadlines on a varied reference corpus before
 making quality claims.
 
+## Explicit local-only cleanup
+
+`cleanup_archived_audio` inventories and removes audio only from an owned archived
+meeting or a pending archive cleanup. It acquires the shared audio operation lock,
+records a resumable state before deletion, and preserves documents and existing
+remote proofs. It does not call webhooks, require configuration, or decode audio.
+Metadata records `audio_cleanup_mode: local_only` without claiming remote
+verification. Tests cover document preservation, idempotence, active operations,
+non-archived meetings, denied deletion, and retry.
+
 ## Native smoke checklist
 
 After building on the target platform:
@@ -135,9 +173,13 @@ After building on the target platform:
    audio, then restore and play the recording.
 3. Make the webhook unavailable, simulate denied deletion, and retry. Unverifiable
    archives must retain local originals. Failed cleanup must remain resumable.
-4. Inventory legacy archives before cleanup. Historical remote audio without an
-   original digest must also decode completely through FFmpeg without being
-   persisted locally. Missing or failing decoders must prevent local deletion.
+4. Inventory legacy archives before manual cleanup. The explicit cleanup action
+   deletes managed audio locally without contacting a webhook or running FFmpeg.
+   Confirm documents remain unchanged, active operations block cleanup, and denied
+   deletion can be retried. Remote proof must not be fabricated by manual cleanup.
+   Restoration without an original digest still requires a full remote decode;
+   its seekable RAM buffer is capped at 512 MiB. Decode failure preserves local
+   files and prevents restoration from publishing an unverified file.
 5. Rename a synthetic speaker, copy each transcript version, and paste into the
    destination editor. Test denied clipboard access and invalid JSON.
 6. Generate a summary through a real Ollama server. Observe progress, interrupt

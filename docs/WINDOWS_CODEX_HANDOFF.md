@@ -58,9 +58,11 @@ Already implemented:
 - Archiving locks against recording/conversion/retranscription, uploads the final
   audio, verifies remote bytes by size/SHA-256, persists confirmation, then
   removes application-managed audio/checkpoints without following symlinks.
-  Failed cleanup remains resumable. Historical archives require inventory and
-  remote verification; without an original digest, a complete FFmpeg decode is
-  required. External import sources, transcripts, summaries, and metadata remain.
+  Failed cleanup remains resumable. The explicit manual cleanup button inventories
+  archived meetings and deletes local audio without calling a webhook or decoder.
+  It preserves documents and does not claim remote verification. Restoration of
+  historical audio without an original digest still requires a complete FFmpeg
+  decode. External import sources, transcripts, summaries, and metadata remain.
 - Copying produces plain-text speaker/timestamp lines for the complete selected
   transcript version, including renamed speakers and times beyond one hour.
   Invalid formats and denied clipboard access produce explicit errors.
@@ -262,6 +264,27 @@ values into repository files or reports. Relevant variables include
 Enhanced ASR is a separate service; inspect the application's settings and
 integration route instead of confusing its endpoint with whisper.cpp.
 
+Packaged applications load private configuration independently of their launch
+folder. Create `%APPDATA%\Meetily\.env` on Windows, or
+`~/Library/Application Support/Meetily/.env` on macOS, before launching the app.
+The fallback `~/.meetily.env` is also supported. Never copy private configuration
+into the app bundle. Restart the application after changing this file. Existing
+process environment variables take precedence, followed by the user configuration
+and then legacy bundled files. Working-directory `.env` discovery is limited to
+debug builds. The normal bundle configuration excludes `.env` resources.
+
+For Windows, create and open the runtime file without printing its contents:
+
+```powershell
+$RuntimeConfigDir = Join-Path $env:APPDATA 'Meetily'
+New-Item -ItemType Directory -Force $RuntimeConfigDir | Out-Null
+$RuntimeConfigFile = Join-Path $RuntimeConfigDir '.env'
+if (-not (Test-Path $RuntimeConfigFile)) {
+    New-Item -ItemType File $RuntimeConfigFile | Out-Null
+}
+notepad $RuntimeConfigFile
+```
+
 For a same-computer Ollama, check `/api/tags` at `http://localhost:11434`.
 A container reaches a host Ollama via `http://host.docker.internal:11434` only
 when that listener is reachable; do not expose it publicly or disable firewalls.
@@ -330,8 +353,13 @@ directory. Check both normal completion and explicit errors:
    and denied local deletion. Originals must survive unverifiable uploads;
    confirmed uploads with failed cleanup must resume safely. Never disrupt the
    user's real webhook service just to inject an error.
-5. Inventory historical archives before any cleanup. Limit experiments to
-   synthetic legacy fixtures; verify full remote decoding when no digest exists.
+5. Inventory historical archives before manual cleanup. Limit experiments to
+   synthetic legacy fixtures. Confirm that manual cleanup deletes managed audio
+   with no webhook or decoder calls, preserves transcripts and summaries, and
+   refuses active recording/conversion/retranscription. Retry denied deletion.
+   Historical restoration still decodes remote audio when no digest exists;
+   include a MP4 with `moov` after `mdat`. Decode verification buffers at most
+   512 MiB in RAM. Confirm its loopback reader stops after completion or failure.
    Do not bulk-clean existing archives as part of this benchmark session.
 6. Rename a synthetic speaker, copy raw/enhanced versions, apply a visual filter,
    and confirm copying still includes the complete selected version. Paste into

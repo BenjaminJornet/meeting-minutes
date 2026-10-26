@@ -187,6 +187,7 @@ impl IncrementalAudioSaver {
             "-safe", "0",            // Allow absolute paths
             "-i", list_file.to_str().unwrap(),
             "-c", "copy",            // Copy codec - no re-encoding!
+            "-movflags", "+faststart", // Keep the MP4 index before media for streaming.
             "-y",                    // Overwrite output file
             output.to_str().unwrap()
         ]);

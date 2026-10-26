@@ -43,6 +43,26 @@ pub fn fingerprint(path: &Path) -> Result<AudioProof, String> {
     Ok(AudioProof { bytes, sha256: format!("{:x}", hash.finalize()) })
 }
 
+/// Explicit manual cleanup is local only and does not assert remote availability.
+pub fn cleanup_archived_audio(folder: &Path) -> Result<(), String> {
+    let _guard = MeetingOperation::acquire(folder)?;
+    let mut metadata = read_metadata(folder)?;
+    if matches!(metadata["status"].as_str(), Some("recording" | "processing")) {
+        return Err("meeting_busy: une opération audio est en cours".into());
+    }
+    if metadata["is_archived"] != true && metadata["archive_state"] != "cleanup_pending" {
+        return Err("audio_cleanup_not_archived: seuls les audios des réunions archivées peuvent être nettoyés".into());
+    }
+    metadata["archive_state"] = json!("cleanup_pending");
+    metadata["audio_cleanup_mode"] = json!("local_only");
+    write_metadata(folder, &metadata)?;
+    clean_audio(folder)?;
+    metadata["archive_state"] = json!("archived");
+    metadata["is_archived"] = json!(true);
+    metadata["audio_cleaned_at"] = json!(Utc::now().to_rfc3339());
+    write_metadata(folder, &metadata)
+}
+
 /// Validate top-level ISO BMFF framing without retaining the recording in memory.
 #[derive(Default)]
 struct Mp4Validator {
@@ -82,6 +102,94 @@ impl Mp4Validator {
     }
 }
 
+const LEGACY_AUDIO_MEMORY_LIMIT: usize = 512 * 1024 * 1024;
+
+fn append_legacy_audio(audio: &mut Vec<u8>, chunk: &[u8]) -> Result<(), String> {
+    append_bounded_audio(audio, chunk, LEGACY_AUDIO_MEMORY_LIMIT)
+}
+
+fn append_bounded_audio(audio: &mut Vec<u8>, chunk: &[u8], limit: usize) -> Result<(), String> {
+    if chunk.len() > limit.saturating_sub(audio.len()) {
+        return Err("archive_verification_memory_limit: ancienne archive trop volumineuse pour la vérification en mémoire (512 Mo maximum) ; fichiers locaux conservés".into());
+    }
+    let required = audio.len() + chunk.len();
+    if required > audio.capacity() {
+        let capacity = required.max(audio.capacity().saturating_mul(2).min(limit));
+        audio.try_reserve_exact(capacity - audio.len()).map_err(|_| "archive_verification_memory_limit: mémoire insuffisante ; fichiers locaux conservés")?;
+    }
+    audio.extend_from_slice(chunk);
+    Ok(())
+}
+
+/// FFmpeg seeks through a private loopback endpoint backed only by RAM.
+/// Aborting or completing verification releases the listener and audio buffer.
+struct MemoryAudioServer(tokio::task::JoinHandle<()>);
+impl Drop for MemoryAudioServer {
+    fn drop(&mut self) { self.0.abort(); }
+}
+
+fn audio_range(header: &str, len: usize) -> Option<(usize, usize, bool)> {
+    if len == 0 { return None; }
+    let range = header.lines().skip(1).find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        key.eq_ignore_ascii_case("range").then_some(value.trim())
+    });
+    match range {
+        None => Some((0, len - 1, false)),
+        Some(value) => {
+            let (start, end) = value.strip_prefix("bytes=")?.split_once('-')?;
+            let start: usize = start.parse().ok()?;
+            let end = if end.is_empty() { len - 1 } else { end.parse::<usize>().ok()?.min(len - 1) };
+            (start <= end && start < len).then_some((start, end, true))
+        }
+    }
+}
+
+async fn serve_memory_audio(mut socket: tokio::net::TcpStream, audio: &[u8], path: &str) -> std::io::Result<()> {
+    let mut header = Vec::new();
+    while !header.ends_with(b"\r\n\r\n") {
+        if header.len() >= 8192 { return Ok(()); }
+        header.push(socket.read_u8().await?);
+    }
+    let header = String::from_utf8_lossy(&header);
+    if header.lines().next() != Some(&format!("GET {path} HTTP/1.1")) {
+        socket.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await?;
+        return Ok(());
+    }
+    let Some((start, end, partial)) = audio_range(&header, audio.len()) else {
+        socket.write_all(b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await?;
+        return Ok(());
+    };
+    let status = if partial { "206 Partial Content" } else { "200 OK" };
+    let range = if partial { format!("Content-Range: bytes {start}-{end}/{}\r\n", audio.len()) } else { String::new() };
+    let response = format!("HTTP/1.1 {status}\r\nContent-Type: audio/mp4\r\nAccept-Ranges: bytes\r\nContent-Length: {}\r\n{range}Connection: close\r\n\r\n", end - start + 1);
+    socket.write_all(response.as_bytes()).await?;
+    socket.write_all(&audio[start..=end]).await
+}
+
+async fn decode_seekable_audio(decoder: &Path, audio: Vec<u8>) -> Result<(), String> {
+    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await
+        .map_err(|_| "archive_verification_unavailable: lecture en mémoire indisponible")?;
+    let address = listener.local_addr().map_err(|_| "archive_verification_unavailable: adresse locale indisponible")?;
+    let path = format!("/{:032x}/audio.mp4", rand::random::<u128>());
+    let url = format!("http://{address}{path}");
+    let _server = MemoryAudioServer(tokio::spawn(async move {
+        while let Ok((socket, _)) = listener.accept().await {
+            // FFmpeg may close an earlier range when it seeks elsewhere.
+            let _ = tokio::time::timeout(Duration::from_secs(7200), serve_memory_audio(socket, &audio, &path)).await;
+        }
+    }));
+    let mut child = tokio::process::Command::new(decoder)
+        .args(["-nostdin", "-v", "error", "-xerror", "-http_proxy", "", "-i", &url, "-map", "0:a:0", "-f", "null", "-"])
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true)
+        .spawn().map_err(|_| "archive_decoder_unavailable: FFmpeg requis pour vérifier cette ancienne archive")?;
+    let status = tokio::time::timeout(Duration::from_secs(7200), child.wait()).await
+        .map_err(|_| "archive_verify_failed: délai de décodage dépassé")?
+        .map_err(|_| "archive_invalid_audio: décodage interrompu")?;
+    if !status.success() { return Err("archive_invalid_audio: l’archive ne contient pas d’audio décodable ; fichiers locaux conservés".into()); }
+    Ok(())
+}
+
 pub struct ArchiveClient { client: Client, upload_url: String, restore_url: String, api_key: String, decoder: PathBuf }
 impl ArchiveClient {
     pub fn new(upload_url: String, restore_url: String, api_key: String) -> Result<Self, String> {
@@ -115,14 +223,9 @@ impl ArchiveClient {
         Ok(())
     }
     async fn download(&self, folder_name: &str, mut destination: Option<&mut File>, decode: bool) -> Result<AudioProof, String> {
-        // Legacy archives lack an original fingerprint: require a full audio decode.
-        // The binary stream is piped directly, never persisted for verification.
-        let mut decoder = if decode {
-            Some(tokio::process::Command::new(&self.decoder)
-                .args(["-nostdin", "-v", "error", "-xerror", "-i", "pipe:0", "-map", "0:a:0", "-f", "null", "-"])
-                .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true)
-                .spawn().map_err(|_| "archive_decoder_unavailable: FFmpeg requis pour vérifier cette ancienne archive")?)
-        } else { None };
+        // Legacy MP4 indexes may follow the media: decoding requires seeking.
+        // Buffer only legacy verification in RAM, with a strict allocation limit.
+        let mut legacy_audio = if decode { Some(Vec::new()) } else { None };
         let response = self.client.post(&self.restore_url).header("X-API-Key", &self.api_key)
             .json(&json!({"folder": folder_name, "file": "audio.mp4"})).send().await
             .map_err(|_| "archive_verify_failed: restauration inaccessible")?;
@@ -133,20 +236,15 @@ impl ArchiveClient {
         while let Some(chunk) = chunks.next().await {
             let chunk = chunk.map_err(|_| "archive_verify_failed: transfert interrompu")?;
             validator.push(&chunk)?; hash.update(&chunk); bytes += chunk.len() as u64;
-            if let Some(child) = decoder.as_mut() {
-                child.stdin.as_mut().ok_or("archive_invalid_audio: décodeur interrompu")?
-                    .write_all(&chunk).await.map_err(|_| "archive_invalid_audio: décodage de l’archive impossible")?;
+            if let Some(audio) = legacy_audio.as_mut() {
+                append_legacy_audio(audio, &chunk)?;
             }
             if let Some(file) = destination.as_deref_mut() { file.write_all(&chunk).map_err(|e| e.to_string())?; }
         }
         if expected_length.is_some_and(|n| n != bytes) { return Err("archive_verify_failed: transfert incomplet".into()); }
         validator.finish()?;
-        if let Some(mut child) = decoder {
-            drop(child.stdin.take());
-            let status = tokio::time::timeout(Duration::from_secs(7200), child.wait()).await
-                .map_err(|_| "archive_verify_failed: délai de décodage dépassé")?
-                .map_err(|_| "archive_invalid_audio: décodage interrompu")?;
-            if !status.success() { return Err("archive_invalid_audio: l’archive ne contient pas d’audio décodable".into()); }
+        if let Some(audio) = legacy_audio {
+            decode_seekable_audio(&self.decoder, audio).await?;
         }
         Ok(AudioProof { bytes, sha256: format!("{:x}", hash.finalize()) })
     }
@@ -233,5 +331,63 @@ mod tests {
     fn metadata_updates_preserve_transcripts_and_unknown_fields() {
         let dir=tempfile::tempdir().unwrap(); let value=json!({"title":"Test", "custom":42});
         write_metadata(dir.path(), &value).unwrap(); assert_eq!(read_metadata(dir.path()).unwrap(),value);
+    }
+
+    #[test]
+    fn manual_cleanup_needs_no_webhook_or_remote_proof_and_preserves_documents() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join(".checkpoints")).unwrap();
+        for name in ["audio.mp4", "audio.temp.wav", ".checkpoints/chunk.m4a"] {
+            fs::write(dir.path().join(name), b"local audio").unwrap();
+        }
+        for name in ["transcripts.json", "summary.md"] { fs::write(dir.path().join(name), b"keep").unwrap(); }
+        write_metadata(dir.path(), &json!({"is_archived":true,"custom":"keep"})).unwrap();
+        cleanup_archived_audio(dir.path()).unwrap();
+        cleanup_archived_audio(dir.path()).unwrap();
+        assert!(audio_inventory(dir.path()).unwrap().is_empty());
+        for name in ["transcripts.json", "summary.md"] { assert_eq!(fs::read(dir.path().join(name)).unwrap(), b"keep"); }
+        let metadata = read_metadata(dir.path()).unwrap();
+        assert_eq!(metadata["custom"], "keep");
+        assert_eq!(metadata["archive_state"], "archived");
+        assert_eq!(metadata["audio_cleanup_mode"], "local_only");
+        assert!(metadata.get("archive_proof").is_none());
+        assert!(metadata.get("archive_verified_at").is_none());
+    }
+
+    #[test]
+    fn manual_cleanup_refuses_active_or_unarchived_meetings() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("audio.mp4"), b"keep").unwrap();
+        for metadata in [json!({"is_archived":false}), json!({"is_archived":true,"status":"recording"}), json!({"is_archived":true,"status":"processing"})] {
+            write_metadata(dir.path(), &metadata).unwrap();
+            assert!(cleanup_archived_audio(dir.path()).is_err());
+            assert_eq!(read_metadata(dir.path()).unwrap(), metadata);
+            assert_eq!(fs::read(dir.path().join("audio.mp4")).unwrap(), b"keep");
+        }
+        write_metadata(dir.path(), &json!({"is_archived":true})).unwrap();
+        let guard = MeetingOperation::acquire(dir.path()).unwrap();
+        assert!(cleanup_archived_audio(dir.path()).unwrap_err().starts_with("meeting_busy:"));
+        drop(guard);
+    }
+
+    #[test]
+    fn legacy_memory_budget_refuses_growth_before_copying() {
+        let mut audio = Vec::new();
+        append_bounded_audio(&mut audio, b"1234", 5).unwrap();
+        assert!(append_bounded_audio(&mut audio, b"56", 5).unwrap_err().starts_with("archive_verification_memory_limit:"));
+        assert_eq!(audio, b"1234");
+        append_bounded_audio(&mut audio, b"5", 5).unwrap();
+        assert_eq!(audio, b"12345");
+    }
+
+    #[test]
+    fn memory_audio_ranges_allow_seeking_and_reject_invalid_offsets() {
+        assert_eq!(audio_range("GET / HTTP/1.1\r\nRange: bytes=40-\r\n\r\n", 100), Some((40, 99, true)));
+        assert_eq!(audio_range("GET / HTTP/1.1\r\nrange: bytes=0-200\r\n\r\n", 100), Some((0, 99, true)));
+        assert_eq!(audio_range("GET / HTTP/1.1\r\n\r\n", 100), Some((0, 99, false)));
+        for range in ["100-", "20-10", "1-2,4-5", "oops", "-2"] {
+            assert_eq!(audio_range(&format!("GET / HTTP/1.1\r\nRange: bytes={range}\r\n\r\n"), 100), None);
+        }
+        assert_eq!(audio_range("GET / HTTP/1.1\r\n\r\n", 0), None);
     }
 }
