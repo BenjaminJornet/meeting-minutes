@@ -47,9 +47,7 @@ pub fn fingerprint(path: &Path) -> Result<AudioProof, String> {
 pub fn cleanup_archived_audio(folder: &Path) -> Result<(), String> {
     let _guard = MeetingOperation::acquire(folder)?;
     let mut metadata = read_metadata(folder)?;
-    if matches!(metadata["status"].as_str(), Some("recording" | "processing")) {
-        return Err("meeting_busy: une opération audio est en cours".into());
-    }
+    // Historical status can survive a crash; the operation lock tracks live work.
     if metadata["is_archived"] != true && metadata["archive_state"] != "cleanup_pending" {
         return Err("audio_cleanup_not_archived: seuls les audios des réunions archivées peuvent être nettoyés".into());
     }
@@ -358,16 +356,33 @@ mod tests {
     fn manual_cleanup_refuses_active_or_unarchived_meetings() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("audio.mp4"), b"keep").unwrap();
-        for metadata in [json!({"is_archived":false}), json!({"is_archived":true,"status":"recording"}), json!({"is_archived":true,"status":"processing"})] {
+        for metadata in [json!({"is_archived":false}), json!({"is_archived":false,"status":"recording"}), json!({"is_archived":false,"status":"processing"})] {
             write_metadata(dir.path(), &metadata).unwrap();
             assert!(cleanup_archived_audio(dir.path()).is_err());
             assert_eq!(read_metadata(dir.path()).unwrap(), metadata);
             assert_eq!(fs::read(dir.path().join("audio.mp4")).unwrap(), b"keep");
         }
-        write_metadata(dir.path(), &json!({"is_archived":true})).unwrap();
+        write_metadata(dir.path(), &json!({"is_archived":true,"status":"processing"})).unwrap();
         let guard = MeetingOperation::acquire(dir.path()).unwrap();
         assert!(cleanup_archived_audio(dir.path()).unwrap_err().starts_with("meeting_busy:"));
+        assert_eq!(fs::read(dir.path().join("audio.mp4")).unwrap(), b"keep");
         drop(guard);
+    }
+
+    #[test]
+    fn manual_cleanup_allows_stale_status_when_no_operation_holds_the_lock() {
+        for status in ["recording", "processing"] {
+            let dir = tempfile::tempdir().unwrap();
+            fs::write(dir.path().join("audio.temp.wav"), b"stale audio").unwrap();
+            fs::write(dir.path().join("transcripts.json"), b"keep transcript").unwrap();
+            fs::write(dir.path().join("summary.md"), b"keep summary").unwrap();
+            write_metadata(dir.path(), &json!({"is_archived":true,"status":status})).unwrap();
+            cleanup_archived_audio(dir.path()).unwrap();
+            assert!(audio_inventory(dir.path()).unwrap().is_empty());
+            assert_eq!(fs::read(dir.path().join("transcripts.json")).unwrap(), b"keep transcript");
+            assert_eq!(fs::read(dir.path().join("summary.md")).unwrap(), b"keep summary");
+            assert_eq!(read_metadata(dir.path()).unwrap()["archive_state"], "archived");
+        }
     }
 
     #[test]

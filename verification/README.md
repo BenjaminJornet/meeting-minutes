@@ -160,6 +160,10 @@ remote proofs. It does not call webhooks, require configuration, or decode audio
 Metadata records `audio_cleanup_mode: local_only` without claiming remote
 verification. Tests cover document preservation, idempotence, active operations,
 non-archived meetings, denied deletion, and retry.
+Historical `recording` or `processing` metadata does not establish live activity:
+cleanup relies on the shared operation lock and the native recording-state check.
+Regression tests cover unlocked archived meetings with both stale statuses and
+confirm that a genuinely held lock still prevents deletion.
 
 ## Native smoke checklist
 
