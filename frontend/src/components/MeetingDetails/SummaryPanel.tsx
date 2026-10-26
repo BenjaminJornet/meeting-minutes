@@ -157,6 +157,12 @@ export function SummaryPanel({
         )}
       </div>
 
+      {summaryStatus === 'error' && summaryError && (
+        <div role="alert" className="m-4 p-3 rounded bg-red-50 text-red-800 text-sm">
+          <code className="font-mono mr-2">{summaryError.split(/ — |: /)[0]}</code>
+          <span>{summaryError.replace(/^[a-z_]+(?: — |: )/, '').replace(/^[a-z_]+: /, '')}</span>
+        </div>
+      )}
       {isSummaryLoading ? (
         <div className="flex flex-col h-full">
           {/* Show button group during generation */}
@@ -179,7 +185,7 @@ export function SummaryPanel({
           <div className="flex items-center justify-center flex-1">
             <div className="text-center">
               <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-              <p className="text-gray-600">Generating AI Summary...</p>
+              <p role="status" className="text-gray-600">{getSummaryStatusMessage(summaryStatus)}</p>
             </div>
           </div>
         </div>

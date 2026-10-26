@@ -80,6 +80,8 @@ pub async fn import_audio_file_as_meeting<R: Runtime>(
     let meeting_folder = create_meeting_folder(&recordings_dir, &title)
         .map_err(|e| format!("Failed to create meeting folder: {}", e))?;
 
+    let import_operation = crate::meeting_files::MeetingOperation::acquire(&meeting_folder)?;
+
     emit_progress(
         &app,
         "creating",
@@ -125,7 +127,7 @@ pub async fn import_audio_file_as_meeting<R: Runtime>(
         Some(meeting_folder.to_string_lossy().to_string()),
         None,
     );
-    let segments = match transcribe_imported_audio(&app, &final_audio_path).await {
+    let segments = match transcribe_imported_audio(&app, &final_audio_path, &import_operation).await {
         Ok(segments) => segments,
         Err(error) => {
             let _ = write_metadata(&meeting_folder, &title, "error", &selected_path, None, None);
@@ -421,6 +423,7 @@ fn find_ffmpeg_path() -> Option<String> {
 async fn transcribe_imported_audio<R: Runtime>(
     app: &AppHandle<R>,
     audio_path: &Path,
+    operation: &crate::meeting_files::MeetingOperation,
 ) -> Result<Vec<TranscriptSegment>, String> {
     let config = api_get_transcript_config(app.clone(), app.clone().state(), None)
         .await?
@@ -476,7 +479,7 @@ async fn transcribe_imported_audio<R: Runtime>(
             );
         }
 
-        return transcribe_remote(app, audio_path, remote_target).await;
+        return transcribe_remote(app, audio_path, remote_target, operation).await;
     }
 
     info!(
@@ -510,6 +513,7 @@ async fn transcribe_remote<R: Runtime>(
     app: &AppHandle<R>,
     audio_path: &Path,
     remote_url: Option<String>,
+    operation: &crate::meeting_files::MeetingOperation,
 ) -> Result<Vec<TranscriptSegment>, String> {
     emit_progress_with_percent(
         app,
@@ -520,11 +524,13 @@ async fn transcribe_remote<R: Runtime>(
         None,
         5.0,
     );
-    let result = crate::audio::transcription::retranscribe_commands::retranscribe_audio_file(
+    let result = crate::audio::transcription::retranscribe_commands::retranscribe_with_operation(
         app.clone(),
         audio_path.to_string_lossy().to_string(),
         remote_url,
         None,
+        audio_path.parent().ok_or("audio_path_invalid")?,
+        operation,
     )
     .await?;
 

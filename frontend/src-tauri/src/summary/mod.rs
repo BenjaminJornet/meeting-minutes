@@ -7,6 +7,7 @@
 /// - Templates for structured meeting summary generation
 /// - Tauri commands for frontend integration
 
+pub mod checkpoints;
 pub mod commands;
 pub mod llm_client;
 pub mod processor;

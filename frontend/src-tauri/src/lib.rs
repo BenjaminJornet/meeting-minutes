@@ -39,6 +39,8 @@ pub mod analytics;
 pub mod api;
 pub mod audio;
 pub mod archive;
+pub mod archive_core;
+pub mod meeting_files;
 pub mod console_utils;
 pub mod database;
 pub mod notifications;
@@ -546,6 +548,19 @@ pub fn run() {
             //     });
             // }
 
+            // Recover only abandoned app-owned conversion files; OS locks protect active work.
+            if let Ok(entries) = std::fs::read_dir(audio::recording_preferences::get_default_recordings_folder()) {
+                for entry in entries.flatten() {
+                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                        if let Ok(_guard) = meeting_files::MeetingOperation::acquire(&entry.path()) {
+                            if let Err(error) = meeting_files::recover_temporary_audio(&entry.path()) {
+                                log::warn!("audio_temp_recovery_failed: {}", error);
+                            }
+                        }
+                    }
+                }
+            }
+
             // Initialize database (handles first launch detection and conditional setup)
             tauri::async_runtime::block_on(async {
                 database::setup::initialize_database_on_startup(&_app.handle()).await
@@ -758,7 +773,10 @@ pub fn run() {
             database::commands::open_database_folder,
             whisper_engine::commands::open_models_folder,
             // Archive commands
+            summary::commands::api_get_summary_options,
+            summary::commands::api_save_summary_options,
             archive::archive_meeting,
+            archive::get_archive_audio_inventory,
             archive::restore_meeting,
             archive::get_archivable_meetings,
             // System settings commands

@@ -35,7 +35,7 @@ struct TranscriptionSegment {
 /// Configuration for the remote whisper server
 #[derive(Debug, Clone)]
 pub struct RemoteWhisperConfig {
-    /// Base URL of the whisper server (e.g., "http://100.64.0.4:8178")
+    /// Base URL of the whisper server (e.g., "http://whisper.example.test:8178")
     pub server_url: String,
     /// Request timeout in seconds
     pub timeout_secs: u64,

@@ -18,6 +18,7 @@ import { Switch } from '@/components/ui/switch';
 import { Lock, Unlock, Eye, EyeOff, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { SummaryProfileSettings } from './SummaryProfileSettings';
 
 export interface ModelConfig {
   provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter';
@@ -852,6 +853,10 @@ export function ModelSettingsModal({
           </div>
         )}
       </div>
+
+      {modelConfig.provider === 'ollama' && modelConfig.model && (
+        <SummaryProfileSettings key={`${modelConfig.provider}:${modelConfig.model}:${ollamaEndpoint}`} endpoint={ollamaEndpoint} provider={modelConfig.provider} model={modelConfig.model} />
+      )}
 
       {/* Auto-generate summaries toggle */}
       {/* <div className="mt-6 pt-6 border-t border-gray-200">

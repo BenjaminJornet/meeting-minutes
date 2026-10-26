@@ -50,7 +50,7 @@ This guide explains how to run Meetily with the **backend services on a remote s
 - Docker Desktop with NVIDIA GPU support
 - NVIDIA GPU (e.g., RTX 4090)
 - Tailscale installed and connected
-- Note your Tailscale IP (e.g., `100.64.0.4`)
+- Note your server hostname (e.g., `server.example.test`)
 
 ### On Your Local Machine (Mac)
 - macOS 12+ (for CoreML/Metal acceleration)
@@ -136,7 +136,7 @@ pnpm install
 
 ### 2.2 Configure Remote Backend
 
-Edit the root `.env` file with your server's Tailscale IP:
+Edit the root `.env` file with your server's hostname:
 
 ```bash
 # From project root
@@ -147,9 +147,12 @@ Edit `.env`:
 
 ```bash
 # .env (at project root)
-MEETILY_BACKEND_URL=http://100.64.0.4:5167
-MEETILY_OLLAMA_URL=http://100.64.0.4:11434
+MEETILY_BACKEND_URL=http://server.example.test:5167
+MEETILY_OLLAMA_URL=http://server.example.test:11434
 ```
+
+The `.test` hostname is a documentation placeholder. Substitute your server's
+actual hostname in the ignored `.env` file; do not commit deployment addresses.
 
 ### 2.3 Build the App
 
@@ -169,15 +172,15 @@ After launching Meetily:
 
 1. Click the **Settings** icon (⚙️)
 2. Go to **Model** tab
-3. Set **Ollama Endpoint** to: `http://100.64.0.4:11434`
+3. Set **Ollama Endpoint** to: `http://server.example.test:11434`
 4. Click **Save**
 
 ## 🔧 Environment Variables Reference
 
 | Variable | Description | Default | Example (Remote) |
 |----------|-------------|---------|------------------|
-| `MEETILY_BACKEND_URL` | FastAPI backend URL | `http://localhost:5167` | `http://100.64.0.4:5167` |
-| `MEETILY_OLLAMA_URL` | Ollama LLM server URL | `http://localhost:11434` | `http://100.64.0.4:11434` |
+| `MEETILY_BACKEND_URL` | FastAPI backend URL | `http://localhost:5167` | `http://server.example.test:5167` |
+| `MEETILY_OLLAMA_URL` | Ollama LLM server URL | `http://localhost:11434` | `http://server.example.test:11434` |
 
 > **Note**: Both variables can be set in `.env` file OR Ollama endpoint can be configured in the app's Settings UI.
 
@@ -192,7 +195,7 @@ After launching Meetily:
 
 2. Test connectivity:
    ```bash
-   curl http://100.64.0.4:5167/get-meetings
+   curl http://server.example.test:5167/get-meetings
    ```
 
 3. Check Windows firewall allows port 5167
@@ -201,7 +204,7 @@ After launching Meetily:
 
 1. Verify Ollama is running on remote server:
    ```bash
-   curl http://100.64.0.4:11434/api/tags
+   curl http://server.example.test:11434/api/tags
    ```
 
 2. Check you've pulled at least one model:

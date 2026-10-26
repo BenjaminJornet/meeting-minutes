@@ -1,6 +1,7 @@
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use super::checkpoints::{SummaryOptions, endpoint_key};
 
 // Generic structure for OpenAI-compatible API chat messages
 #[derive(Debug, Serialize)]
@@ -14,6 +15,7 @@ pub struct ChatMessage {
 pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
+    pub max_tokens: usize,
 }
 
 // Generic structure for OpenAI-compatible API chat responses
@@ -24,6 +26,7 @@ pub struct ChatResponse {
 
 #[derive(Deserialize, Debug)]
 pub struct Choice {
+    pub finish_reason: Option<String>,
     pub message: MessageContent,
 }
 
@@ -45,6 +48,7 @@ pub struct ClaudeRequest {
 #[derive(Deserialize, Debug)]
 pub struct ClaudeChatResponse {
     pub content: Vec<ClaudeChatContent>,
+    pub stop_reason: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -97,6 +101,7 @@ pub async fn generate_summary(
     system_prompt: &str,
     user_prompt: &str,
     ollama_endpoint: Option<&str>,
+    options: &SummaryOptions,
 ) -> Result<String, String> {
     let (api_url, mut headers) = match provider {
         LLMProvider::OpenAI => (
@@ -111,18 +116,7 @@ pub async fn generate_summary(
             "https://openrouter.ai/api/v1/chat/completions".to_string(),
             header::HeaderMap::new(),
         ),
-        LLMProvider::Ollama => {
-            // Use provided endpoint, or fallback to MEETILY_OLLAMA_URL env var, or default to localhost
-            let host = ollama_endpoint
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .or_else(|| std::env::var("MEETILY_OLLAMA_URL").ok())
-                .unwrap_or_else(|| "http://localhost:11434".to_string());
-            (
-                format!("{}/v1/chat/completions", host),
-                header::HeaderMap::new(),
-            )
-        }
+        LLMProvider::Ollama => (format!("{}/api/chat", endpoint_key(ollama_endpoint)), header::HeaderMap::new()),
         LLMProvider::Claude => {
             let mut header_map = header::HeaderMap::new();
             header_map.insert(
@@ -142,7 +136,7 @@ pub async fn generate_summary(
     };
 
     // Add authorization header for non-Claude providers
-    if provider != &LLMProvider::Claude {
+    if provider != &LLMProvider::Claude && provider != &LLMProvider::Ollama {
         headers.insert(
             header::AUTHORIZATION,
             format!("Bearer {}", api_key)
@@ -158,9 +152,16 @@ pub async fn generate_summary(
     );
 
     // Build request body based on provider
-    let request_body = if provider != &LLMProvider::Claude {
+    let request_body = if provider == &LLMProvider::Ollama {
+        serde_json::json!({
+            "model": model_name, "stream": false, "think": false,
+            "options": {"num_ctx": options.context_tokens, "num_predict": options.output_tokens},
+            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+        })
+    } else if provider != &LLMProvider::Claude {
         serde_json::json!(ChatRequest {
             model: model_name.to_string(),
+            max_tokens: options.output_tokens,
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
@@ -176,7 +177,7 @@ pub async fn generate_summary(
         serde_json::json!(ClaudeRequest {
             system: system_prompt.to_string(),
             model: model_name.to_string(),
-            max_tokens: 2048,
+            max_tokens: options.output_tokens as u32,
             messages: vec![ChatMessage {
                 role: "user".to_string(),
                 content: user_prompt.to_string(),
@@ -193,14 +194,28 @@ pub async fn generate_summary(
         .json(&request_body)
         .send()
         .await
-        .map_err(|e| format!("Failed to send request to LLM: {}", e))?;
+        .map_err(|e| if e.is_timeout() { "upstream_llm_timeout: délai du modèle dépassé".to_string() }
+            else { "upstream_llm_unavailable: modèle inaccessible".to_string() })?;
 
     if !response.status().is_success() {
-        let error_body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("LLM API request failed: {}", error_body));
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default().to_lowercase();
+        if body.contains("context") || body.contains("token limit") {
+            return Err("context_limit_exceeded: réduire la taille des morceaux ou augmenter le contexte".into());
+        }
+        return Err(format!("upstream_llm_error: HTTP {status}"));
+    }
+    if provider == &LLMProvider::Ollama {
+        let body: serde_json::Value = response.json().await.map_err(|_| "llm_response_invalid: réponse Ollama invalide")?;
+        if body.get("error").is_some() { return Err("upstream_llm_error: échec Ollama".into()); }
+        if body["done"] != true || body["done_reason"].as_str() == Some("length") {
+            return Err("llm_output_truncated: sortie interrompue, augmenter le budget de sortie".into());
+        }
+        if body["prompt_eval_count"].as_u64().is_some_and(|n| n as usize + options.output_tokens + 256 > options.context_tokens) {
+            return Err("context_limit_exceeded: le prompt évalué ne réserve pas assez de place pour la sortie".into());
+        }
+        let content = body["message"]["content"].as_str().unwrap_or_default();
+        return validated_content(content);
     }
 
     // Parse response based on provider
@@ -212,13 +227,16 @@ pub async fn generate_summary(
 
         info!("🐞 LLM Response received from Claude");
 
+        if chat_response.stop_reason.as_deref() == Some("max_tokens") {
+            return Err("llm_output_truncated: budget de sortie atteint".into());
+        }
         let content = chat_response
             .content
             .get(0)
             .ok_or("No content in LLM response")?
             .text
             .trim();
-        Ok(content.to_string())
+        validated_content(content)
     } else {
         let chat_response = response
             .json::<ChatResponse>()
@@ -227,6 +245,9 @@ pub async fn generate_summary(
 
         info!("🐞 LLM Response received from {}", provider_name(provider));
 
+        if chat_response.choices.first().and_then(|c| c.finish_reason.as_deref()) == Some("length") {
+            return Err("llm_output_truncated: budget de sortie atteint".into());
+        }
         let content = chat_response
             .choices
             .get(0)
@@ -234,7 +255,7 @@ pub async fn generate_summary(
             .message
             .content
             .trim();
-        Ok(content.to_string())
+        validated_content(content)
     }
 }
 
@@ -247,4 +268,10 @@ fn provider_name(provider: &LLMProvider) -> &str {
         LLMProvider::Ollama => "Ollama",
         LLMProvider::OpenRouter => "OpenRouter",
     }
+}
+
+fn validated_content(content: &str) -> Result<String, String> {
+    let content = super::processor::clean_llm_markdown_output(content);
+    if content.trim().is_empty() { Err("llm_response_empty: le modèle n’a pas produit de contenu".into()) }
+    else { Ok(content) }
 }

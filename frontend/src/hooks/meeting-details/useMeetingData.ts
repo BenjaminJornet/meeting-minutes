@@ -4,6 +4,7 @@ import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummary
 import { CurrentMeeting, useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { transcriptRows } from '@/lib/transcript-format';
 
 interface UseMeetingDataProps {
   meeting: any;
@@ -16,29 +17,8 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
   const parseTranscripts = (m: any): Transcript[] => {
     if (m.improved_transcript) {
       try {
-        const parsed = JSON.parse(m.improved_transcript);
-        // Handle both formats: direct array [...] or wrapper { segments: [...] }
-        let segmentsArray: any[] | null = null;
-        if (Array.isArray(parsed)) {
-          segmentsArray = parsed;
-        } else if (parsed?.segments && Array.isArray(parsed.segments)) {
-          segmentsArray = parsed.segments;
-        }
-        if (segmentsArray && segmentsArray.length > 0) {
-          console.log('📝 Using improved transcript segments:', segmentsArray.length);
-          return segmentsArray.map((seg: any, index: number) => ({
-            id: `improved-${index}`,
-            text: seg.text,
-            timestamp: new Date().toISOString(),
-            sequence_id: index,
-            audio_start_time: seg.start,
-            audio_end_time: seg.end,
-            duration: seg.end - seg.start,
-            is_partial: false,
-            confidence: 1.0,
-            speaker: seg.speaker
-          }));
-        }
+        const rows = transcriptRows(m.improved_transcript);
+        if (rows.length) return rows;
       } catch (e) {
         console.warn('Failed to parse improved transcript, falling back to original', e);
       }

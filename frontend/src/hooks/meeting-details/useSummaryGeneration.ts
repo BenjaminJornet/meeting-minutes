@@ -5,6 +5,7 @@ import { CurrentMeeting, useSidebar } from '@/components/Sidebar/SidebarProvider
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import Analytics from '@/lib/analytics';
+import { formatTranscript } from '@/lib/transcript-format';
 
 type SummaryStatus = 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
 
@@ -30,6 +31,7 @@ export function useSummaryGeneration({
   setAiSummary,
 }: UseSummaryGenerationProps) {
   const [summaryStatus, setSummaryStatus] = useState<SummaryStatus>('idle');
+  const [progressMessage, setProgressMessage] = useState('');
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [originalTranscript, setOriginalTranscript] = useState<string>('');
 
@@ -37,6 +39,7 @@ export function useSummaryGeneration({
 
   // Helper to get status message
   const getSummaryStatusMessage = useCallback((status: SummaryStatus) => {
+    if (['processing', 'summarizing', 'regenerating'].includes(status) && progressMessage) return progressMessage;
     switch (status) {
       case 'processing':
         return 'Processing transcript...';
@@ -51,7 +54,7 @@ export function useSummaryGeneration({
       default:
         return '';
     }
-  }, []);
+  }, [progressMessage]);
 
   // Unified summary processing logic
   const processSummary = useCallback(async ({
@@ -65,6 +68,7 @@ export function useSummaryGeneration({
   }) => {
     setSummaryStatus(isRegeneration ? 'regenerating' : 'processing');
     setSummaryError(null);
+    setProgressMessage('Préparation du compte rendu…');
 
     try {
       if (!transcriptText.trim()) {
@@ -99,8 +103,6 @@ export function useSummaryGeneration({
         model: modelConfig.provider,
         modelName: modelConfig.model,
         meetingId: meeting.id,
-        chunkSize: 40000,
-        overlap: 1000,
         customPrompt: customPrompt,
         templateId: selectedTemplate,
       }) as any;
@@ -110,12 +112,17 @@ export function useSummaryGeneration({
 
       // Start global polling via context
       startSummaryPolling(meeting.id, process_id, async (pollingResult) => {
-        console.log('Summary status:', pollingResult);
+        if (pollingResult.progress) {
+          const {stage, completed, total} = pollingResult.progress;
+          setProgressMessage(stage === 'analysis' ? `Analyse ${Math.min(completed + 1, total)}/${total}`
+            : stage === 'consolidation' ? `Consolidation ${Math.min(completed + 1, total)}/${total}`
+            : stage === 'final' ? 'Rédaction du compte rendu…' : 'Préparation…');
+        }
 
         // Handle errors
         if (pollingResult.status === 'error' || pollingResult.status === 'failed') {
           console.error('Backend returned error:', pollingResult.error);
-          const errorMessage = pollingResult.error || `Summary ${isRegeneration ? 'regeneration' : 'generation'} failed`;
+          const errorMessage = (pollingResult.error_code ? `${pollingResult.error_code} — ` : '') + (pollingResult.error || `Summary ${isRegeneration ? 'regeneration' : 'generation'} failed`);
           setSummaryError(errorMessage);
           setSummaryStatus('error');
 
@@ -307,12 +314,7 @@ export function useSummaryGeneration({
       }
     }
 
-    const fullTranscript = transcripts.map(t => {
-      if (t.speaker) {
-        return `[${t.speaker}] ${t.text}`;
-      }
-      return t.text;
-    }).join('\n');
+    const fullTranscript = formatTranscript(transcripts);
     await processSummary({ transcriptText: fullTranscript, customPrompt });
   }, [transcripts, processSummary, modelConfig, isModelConfigLoading, selectedTemplate]);
 

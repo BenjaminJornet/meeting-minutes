@@ -18,14 +18,14 @@ use crate::{
 
 // Server URL - configurable via MEETILY_BACKEND_URL environment variable
 // Default: http://localhost:5167 (local development)
-// Remote example: http://100.64.0.4:5167 (Tailscale IP)
+// Remote example: http://backend.example.test:5167
 pub fn get_app_server_url() -> String {
     if let Ok(url) = env::var("MEETILY_BACKEND_URL") {
         return url;
     }
 
     // Fallback: Try to infer from MEETILY_OLLAMA_URL (or legacy OLLAMA_HOST)
-    // If Ollama is http://100.64.0.4:11434, we assume backend is at http://100.64.0.4:5167
+    // A remote Ollama host can also host the backend on its configured port.
     let ollama_url = env::var("MEETILY_OLLAMA_URL")
         .or_else(|_| env::var("OLLAMA_HOST")) // Legacy fallback
         .ok();

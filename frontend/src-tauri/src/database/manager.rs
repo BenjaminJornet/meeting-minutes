@@ -33,6 +33,9 @@ impl DatabaseManager {
 
         sqlx::migrate!("./migrations").run(&pool).await?;
 
+        // No background task survives an application restart. Preserve checkpoints for retry.
+        sqlx::query("UPDATE summary_processes SET status='failed', error='summary_interrupted: application interrompue, relancer pour reprendre' WHERE lower(status) IN ('pending','processing')")
+            .execute(&pool).await?;
         Ok(DatabaseManager { pool })
     }
 

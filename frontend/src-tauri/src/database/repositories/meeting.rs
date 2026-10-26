@@ -107,6 +107,9 @@ impl MeetingsRepository {
                                     info!("📝 Loaded improved transcript from {}", improved_path.display());
                                     return Some(transcript.to_string());
                                 }
+                                if json.is_array() || json.get("segments").is_some() || json.get("transcripts").is_some() {
+                                    return Some(content);
+                                }
                             }
                             None
                         }
@@ -214,6 +217,12 @@ async fn delete_meeting_with_transaction(
         error!("Meeting {} not found for deletion", meeting_id);
         return Ok(false);
     }
+
+    // Checkpoints contain meeting evidence and must follow the meeting's lifecycle.
+    sqlx::query("DELETE FROM summary_checkpoints WHERE meeting_id = ?")
+        .bind(meeting_id).execute(&mut *transaction).await?;
+    sqlx::query("DELETE FROM summary_progress WHERE meeting_id = ?")
+        .bind(meeting_id).execute(&mut *transaction).await?;
 
     // Delete from related tables in proper order
     // 1. Delete from transcript_chunks

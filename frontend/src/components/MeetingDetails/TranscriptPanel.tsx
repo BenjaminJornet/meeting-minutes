@@ -13,7 +13,7 @@ interface TranscriptPanelProps {
   improvedTranscript?: string | null;
   customPrompt: string;
   onPromptChange: (value: string) => void;
-  onCopyTranscript: () => void;
+  onCopyTranscript: (version?: 'original' | 'enhanced') => void;
   onOpenMeetingFolder: () => Promise<void>;
   isRecording: boolean;
   meetingFolderPath?: string | null;
@@ -77,8 +77,8 @@ export function TranscriptPanel({
 
           <div className="flex-shrink-0">
             <TranscriptButtonGroup
-              transcriptCount={transcripts?.length || 0}
-              onCopyTranscript={onCopyTranscript}
+              transcriptCount={showImproved && hasImprovedTranscript ? 1 : (transcripts?.length || 0)}
+              onCopyTranscript={() => onCopyTranscript(showImproved && hasImprovedTranscript ? 'enhanced' : 'original')}
               onOpenMeetingFolder={onOpenMeetingFolder}
             />
           </div>

@@ -49,6 +49,7 @@ pub struct DeviceInfo {
 
 /// New recording saver using incremental saving strategy
 pub struct RecordingSaver {
+    operation: Option<crate::meeting_files::MeetingOperation>,
     incremental_saver: Option<Arc<AsyncMutex<IncrementalAudioSaver>>>,
     meeting_folder: Option<PathBuf>,
     meeting_name: Option<String>,
@@ -61,6 +62,7 @@ pub struct RecordingSaver {
 impl RecordingSaver {
     pub fn new() -> Self {
         Self {
+            operation: None,
             incremental_saver: None,
             meeting_folder: None,
             meeting_name: None,
@@ -204,6 +206,9 @@ impl RecordingSaver {
         // Create meeting folder structure
         let meeting_folder = create_meeting_folder(&base_folder, meeting_name)?;
 
+        let operation = crate::meeting_files::MeetingOperation::acquire(&meeting_folder)
+            .map_err(anyhow::Error::msg)?;
+
         // Initialize incremental saver
         let incremental_saver = IncrementalAudioSaver::new(meeting_folder.clone(), 48000)?;
 
@@ -228,6 +233,7 @@ impl RecordingSaver {
         // Write initial metadata.json
         self.write_metadata(&meeting_folder, &metadata)?;
 
+        self.operation = Some(operation);
         self.meeting_folder = Some(meeting_folder);
         self.incremental_saver = Some(Arc::new(AsyncMutex::new(incremental_saver)));
         self.metadata = Some(metadata);
@@ -326,6 +332,8 @@ impl RecordingSaver {
         recording_duration: Option<f64>
     ) -> Result<Option<String>, String> {
         info!("Stopping recording saver - using incremental saving approach");
+        // Local ownership releases the lock on every error/early return too.
+        let operation = self.operation.take();
 
         // Stop accumulation
         if let Ok(mut is_saving) = self.is_saving.lock() {
@@ -405,6 +413,8 @@ impl RecordingSaver {
 
             info!("✅ Metadata updated with duration: {:?}s", metadata.duration_seconds);
         }
+
+        drop(operation);
 
         // Emit save event with audio and transcript paths
         let save_event = serde_json::json!({

@@ -12,6 +12,8 @@ interface ArchivableMeeting {
   is_archived: boolean;
   file_size_mb: number;
   speakers?: string[];
+  archive_state?: string;
+  residual_audio_count: number;
 }
 
 export function ArchiveSettings() {
@@ -20,6 +22,7 @@ export function ArchiveSettings() {
   const [isLoading, setIsLoading] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cleanupPreview, setCleanupPreview] = useState<{meeting: ArchivableMeeting; files: string[]; bytes: number} | null>(null);
 
   const [showAll, setShowAll] = useState(true);
 
@@ -62,6 +65,8 @@ export function ArchiveSettings() {
   }, [showAll]);
 
   const handleArchive = async (meeting: ArchivableMeeting) => {
+    setError(null);
+    setCleanupPreview(null);
     setProcessingId(meeting.id);
     try {
       const res = await invoke<{success: boolean, error?: string}>('archive_meeting', {
@@ -77,7 +82,15 @@ export function ArchiveSettings() {
       setError(String(e));
     } finally {
       setProcessingId(null);
+      await fetchMeetings();
     }
+  };
+
+  const previewCleanup = async (meeting: ArchivableMeeting) => {
+    try {
+      const inventory = await invoke<{files: string[]; bytes: number}>('get_archive_audio_inventory', { meetingFolderPath: meeting.folder_path });
+      setCleanupPreview({meeting, ...inventory});
+    } catch (error) { setError(String(error)); }
   };
 
   const handleRestore = async (meeting: ArchivableMeeting) => {
@@ -101,6 +114,15 @@ export function ArchiveSettings() {
 
   return (
     <div className="space-y-6 p-4">
+      {cleanupPreview && (
+        <div role="dialog" aria-label="Nettoyer les audios archivés" className="p-4 border rounded bg-blue-50 space-y-3">
+          <p>Nettoyer {cleanupPreview.files.length} fichiers audio ({(cleanupPreview.bytes / 1e6).toFixed(1)} Mo) ?</p>
+          <p className="text-sm">L’audio final distant sera vérifié avant toute suppression. Les transcriptions et comptes rendus sont conservés.</p>
+          <ul className="text-xs max-h-40 overflow-auto">{cleanupPreview.files.map(file => <li key={file}>{file}</li>)}</ul>
+          <button onClick={() => handleArchive(cleanupPreview.meeting)} className="px-3 py-2 bg-blue-600 text-white rounded">Vérifier et nettoyer</button>
+          <button onClick={() => setCleanupPreview(null)} className="px-3 py-2">Annuler</button>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-medium text-gray-900">Archive Management</h2>
@@ -182,7 +204,9 @@ export function ArchiveSettings() {
                   {/* Date moved to chips */}
                 </div>
                 <div className="col-span-2 text-sm text-gray-500 flex items-center gap-1">
-                  {meeting.is_archived ? (
+                  {meeting.archive_state === 'cleanup_pending' ? (
+                    <span className="text-amber-700 text-xs">Nettoyage à terminer</span>
+                  ) : meeting.is_archived ? (
                     <span className="text-green-600 flex items-center gap-1 text-xs bg-green-50 px-2 py-0.5 rounded-full">
                       <CheckCircle size={10} /> Archived
                     </span>
@@ -194,6 +218,9 @@ export function ArchiveSettings() {
                   )}
                 </div>
                 <div className="col-span-3 text-right flex items-center justify-end gap-2">
+                  {(meeting.is_archived && meeting.residual_audio_count > 0) || meeting.archive_state === 'cleanup_pending' ? (
+                    <button disabled={!!processingId} onClick={() => previewCleanup(meeting)} className="px-3 py-1.5 text-xs bg-amber-50 text-amber-800 rounded">Nettoyer les audios ({meeting.residual_audio_count})</button>
+                  ) : null}
                   <button
                     onClick={() => invoke('open_external_url', { url: meeting.folder_path })}
                     className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"

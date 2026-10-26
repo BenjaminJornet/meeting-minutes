@@ -7,6 +7,7 @@ use crate::summary::service::SummaryService;
 use log::{error as log_error, info as log_info, warn as log_warn};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Runtime};
+use super::checkpoints::{self, SummaryOptions, SummaryRunGuard};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SummaryResponse {
@@ -18,6 +19,8 @@ pub struct SummaryResponse {
     pub end: Option<String>,
     pub data: Option<serde_json::Value>,
     pub error: Option<String>,
+    pub progress: Option<serde_json::Value>,
+    pub error_code: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -125,7 +128,9 @@ pub async fn api_get_summary<R: Runtime>(
                 start: process.start_time.map(|t| t.to_rfc3339()),
                 end: process.end_time.map(|t| t.to_rfc3339()),
                 data,
+                error_code: error.as_deref().map(|e| e.split(':').next().unwrap_or("summary_failed").to_owned()),
                 error,
+                progress: get_progress(pool, &meeting_id).await,
             };
 
             log_info!(
@@ -154,6 +159,8 @@ pub async fn api_get_summary<R: Runtime>(
                 end: None,
                 data: None,
                 error: None,
+                error_code: None,
+                progress: None,
             })
         }
         Err(e) => {
@@ -168,12 +175,13 @@ pub async fn api_get_summary<R: Runtime>(
 /// Spawns a background task and returns immediately with process_id
 #[tauri::command]
 pub async fn api_process_transcript<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     text: String,
     model: String,
     model_name: String,
     meeting_id: Option<String>,
+    summary_options: Option<SummaryOptions>,
     _chunk_size: Option<i32>,
     _overlap: Option<i32>,
     custom_prompt: Option<String>,
@@ -189,6 +197,8 @@ pub async fn api_process_transcript<R: Runtime>(
         &model
     );
 
+    let run_guard = SummaryRunGuard::acquire(&m_id)?;
+    if let Some(ref options) = summary_options { options.validate()?; }
     let pool = state.db_manager.pool().clone();
     let final_prompt = custom_prompt.unwrap_or_else(|| "".to_string());
     let final_template_id = template_id.unwrap_or_else(|| "daily_standup".to_string());
@@ -216,13 +226,16 @@ pub async fn api_process_transcript<R: Runtime>(
     .await
     .map_err(|e| format!("Failed to save transcript data: {}", e))?;
 
+    sqlx::query("INSERT INTO summary_progress(meeting_id,stage,completed,total,error_code) VALUES(?,'pending',0,0,NULL) ON CONFLICT(meeting_id) DO UPDATE SET stage='pending',completed=0,total=0,error_code=NULL")
+        .bind(&m_id).execute(&pool).await.map_err(|e| e.to_string())?;
+
     log_info!("✓ Transcript chunks saved for meeting_id: {}", &m_id);
 
     // Spawn background task for actual processing
     let meeting_id_clone = m_id.clone();
     tauri::async_runtime::spawn(async move {
+        let _run_guard = run_guard;
         SummaryService::process_transcript_background(
-            app,
             pool,
             meeting_id_clone.clone(),
             text,
@@ -230,6 +243,7 @@ pub async fn api_process_transcript<R: Runtime>(
             model_name,
             final_prompt,
             final_template_id,
+            summary_options,
         )
         .await;
     });
@@ -240,4 +254,19 @@ pub async fn api_process_transcript<R: Runtime>(
         message: "Summary generation started".to_string(),
         process_id: m_id,
     })
+}
+
+async fn get_progress(pool: &sqlx::SqlitePool, meeting_id: &str) -> Option<serde_json::Value> {
+    let row: Option<(String,i64,i64,Option<String>)> = sqlx::query_as("SELECT stage,completed,total,error_code FROM summary_progress WHERE meeting_id=?")
+        .bind(meeting_id).fetch_optional(pool).await.ok()?;
+    row.map(|(stage,completed,total,error_code)| serde_json::json!({"stage":stage,"completed":completed,"total":total,"error_code":error_code}))
+}
+
+#[tauri::command]
+pub async fn api_get_summary_options(state: tauri::State<'_, AppState>, endpoint: Option<String>, provider: String, model: String) -> Result<SummaryOptions,String> {
+    checkpoints::load_options(state.db_manager.pool(), &checkpoints::endpoint_key(endpoint.as_deref()), &provider, &model).await
+}
+#[tauri::command]
+pub async fn api_save_summary_options(state: tauri::State<'_, AppState>, endpoint: Option<String>, provider: String, model: String, options: SummaryOptions) -> Result<(),String> {
+    checkpoints::save_options(state.db_manager.pool(), &checkpoints::endpoint_key(endpoint.as_deref()), &provider, &model, &options).await
 }

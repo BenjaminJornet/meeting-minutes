@@ -154,6 +154,34 @@ pub async fn retranscribe_audio_file<R: Runtime>(
     remote_url: Option<String>,
     language: Option<String>,
 ) -> Result<RetranscribeResult, String> {
+    let source_path = PathBuf::from(&audio_path).canonicalize().map_err(|e| e.to_string())?;
+    let source_folder = source_path.parent().ok_or("audio_path_invalid")?;
+    let recordings = crate::audio::recording_preferences::get_default_recordings_folder();
+    std::fs::create_dir_all(&recordings).map_err(|e| e.to_string())?;
+    let root = recordings.canonicalize().map_err(|e| e.to_string())?;
+    // External imports never create or remove files alongside the user's source.
+    let operation_folder = if source_folder.starts_with(&root) {
+        source_folder.to_path_buf()
+    } else {
+        let folder = root.join(".external-audio");
+        std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+        folder
+    };
+    let operation = crate::meeting_files::MeetingOperation::acquire(&operation_folder)?;
+    retranscribe_with_operation(app, audio_path, remote_url, language, &operation_folder, &operation).await
+}
+
+/// Import already owns this lock across conversion, transcription and persistence.
+pub(crate) async fn retranscribe_with_operation<R: Runtime>(
+    app: AppHandle<R>, audio_path: String, remote_url: Option<String>, language: Option<String>,
+    operation_folder: &std::path::Path, _operation: &crate::meeting_files::MeetingOperation,
+) -> Result<RetranscribeResult, String> {
+    crate::meeting_files::recover_temporary_audio(operation_folder)?;
+    let temp_folder = operation_folder.join(".audio-temp");
+    std::fs::create_dir_all(&temp_folder).map_err(|e| e.to_string())?;
+    // RAII cleanup runs on every early return, error and cancellation; never owns the source.
+    let converted = tempfile::Builder::new().prefix("conversion-").suffix(".wav")
+        .tempfile_in(&temp_folder).map_err(|e| e.to_string())?;
     let start_time = std::time::Instant::now();
     let audio_path_str = audio_path.clone();
     let meeting_title = PathBuf::from(&audio_path_str)
@@ -210,7 +238,7 @@ pub async fn retranscribe_audio_file<R: Runtime>(
         info!("📦 Converting {} to WAV format...", extension);
         emit_import_progress(&app, "uploading", "Converting imported audio to WAV for remote processing...".to_string());
         emit_retranscribe_progress(&app, "converting", "Converting audio to WAV for remote processing...".to_string(), &audio_path_str, meeting_title.clone(), None, 25.0);
-        match convert_to_wav(&audio_path_buf).await {
+        match convert_to_wav(&audio_path_buf, converted.path()).await {
             Ok(path) => {
                 emit_retranscribe_progress(&app, "converting", "Audio converted to WAV.".to_string(), &audio_path_str, meeting_title.clone(), None, 100.0);
                 path
@@ -455,8 +483,7 @@ pub async fn retranscribe_audio_file<R: Runtime>(
 }
 
 /// Convert an audio file to WAV format using FFmpeg
-async fn convert_to_wav(input_path: &PathBuf) -> Result<PathBuf, String> {
-    let output_path = input_path.with_extension("temp.wav");
+async fn convert_to_wav(input_path: &PathBuf, output_path: &std::path::Path) -> Result<PathBuf, String> {
     
     #[cfg(target_os = "macos")]
     let ffmpeg_path = find_ffmpeg_path()
@@ -467,7 +494,8 @@ async fn convert_to_wav(input_path: &PathBuf) -> Result<PathBuf, String> {
     
     // Note: Use stereo (-ac 2) for diarization support
     // whisper.cpp server requires stereo WAV for speaker identification
-    let output = std::process::Command::new(&ffmpeg_path)
+    let output = tokio::process::Command::new(&ffmpeg_path)
+        .kill_on_drop(true)
         .args([
             "-y",           // Overwrite output
             "-i", input_path.to_str().unwrap(),
@@ -476,7 +504,7 @@ async fn convert_to_wav(input_path: &PathBuf) -> Result<PathBuf, String> {
             "-c:a", "pcm_s16le", // 16-bit PCM
             output_path.to_str().unwrap(),
         ])
-        .output()
+        .output().await
         .map_err(|e| format!("Failed to run FFmpeg: {}", e))?;
     
     if !output.status.success() {
@@ -484,7 +512,7 @@ async fn convert_to_wav(input_path: &PathBuf) -> Result<PathBuf, String> {
         return Err(format!("FFmpeg conversion failed: {}", stderr));
     }
     
-    Ok(output_path)
+    Ok(output_path.to_path_buf())
 }
 
 #[cfg(target_os = "macos")]
@@ -654,12 +682,15 @@ pub async fn save_improved_transcript(
         let new_segments: serde_json::Value = serde_json::from_str(&json_content)
             .map_err(|e| format!("Failed to parse new segments JSON: {}", e))?;
             
-        // Update the segments field
-        if let Some(obj) = json_data.as_object_mut() {
+        if !new_segments.is_array() { return Err("transcript_invalid: liste de segments attendue".into()); }
+        // Legacy files can be an array or a metadata wrapper.
+        if json_data.is_array() {
+            json_data = new_segments.clone();
+        } else if let Some(obj) = json_data.as_object_mut() {
             obj.insert("segments".to_string(), new_segments.clone());
             // Also update the stringified transcript field if it exists
             obj.insert("transcript".to_string(), serde_json::Value::String(json_content));
-        }
+        } else { return Err("transcript_invalid: format de fichier non reconnu".into()); }
         
         std::fs::write(&improved_path, serde_json::to_string_pretty(&json_data).unwrap_or_default())
             .map_err(|e| format!("Failed to save transcript: {}", e))?;

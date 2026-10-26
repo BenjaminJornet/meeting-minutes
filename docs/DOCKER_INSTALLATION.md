@@ -294,9 +294,12 @@ See **[REMOTE_DESKTOP_SETUP.md](REMOTE_DESKTOP_SETUP.md)** for detailed instruct
 
 Quick overview:
 1. Install Tailscale on both machines
-2. Note your server's Tailscale IP (e.g., `100.64.0.4`)
-3. Set `MEETILY_BACKEND_URL=http://100.64.0.4:5167` in frontend `.env`
+2. Note your server's hostname (e.g., `server.example.test`)
+3. Set `MEETILY_BACKEND_URL=http://server.example.test:5167` in frontend `.env`
 4. Configure Ollama endpoint in app settings
+
+The `.test` hostname is a documentation placeholder. Replace it privately with
+your server's actual hostname; keep the resulting `.env` file out of version control.
 
 ## 📝 Configuration Reference
 

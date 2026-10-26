@@ -1,0 +1,6 @@
+FROM meetily-verification:core
+
+# Linux GUI/audio headers required by the full application, beyond the core tests.
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+    libxdo-dev libasound2-dev libclang-dev clang cmake

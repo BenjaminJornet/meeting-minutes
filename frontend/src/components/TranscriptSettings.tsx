@@ -309,7 +309,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                                     // Auto-save when URL changes
                                                     saveTranscriptConfig(newConfig);
                                                 }}
-                                                placeholder="http://192.168.1.100:8178"
+                                                placeholder="http://whisper.example.test:8178"
                                                 className="flex-1"
                                             />
                                             <Button
@@ -322,7 +322,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                             </Button>
                                         </div>
                                         <p className="text-xs text-gray-500 mt-1">
-                                            Example: http://100.64.0.4:8178 (Tailscale IP)
+                                            Example: http://whisper.example.test:8178
                                         </p>
                                     </div>
                                     <div>

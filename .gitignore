@@ -76,3 +76,12 @@ experiments/
 .cursor/
 
 
+/.playwright-mcp
+
+# Local verification artifacts and private benchmark inputs
+/verification/local/
+/verification/target/
+/benchmarks/asr/data/
+/benchmarks/asr/references/
+/benchmarks/asr/results/
+/benchmarks/asr/__pycache__/

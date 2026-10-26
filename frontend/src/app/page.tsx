@@ -16,6 +16,7 @@ import { PreferenceSettings } from '@/components/PreferenceSettings';
 import { usePermissionCheck } from '@/hooks/usePermissionCheck';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { listen } from '@tauri-apps/api/event';
+import { formatTranscript } from '@/lib/transcript-format';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { downloadDir } from '@tauri-apps/api/path';
 import { listenerCount } from 'process';
@@ -1463,22 +1464,14 @@ export default function Home() {
     }
   }, [originalTranscript, modelConfig]);
 
-  const handleCopyTranscript = useCallback(() => {
+  const handleCopyTranscript = useCallback(async () => {
     // Format timestamps as recording-relative [MM:SS] instead of wall-clock time
-    const formatTime = (seconds: number | undefined): string => {
-      if (seconds === undefined) return '[--:--]';
-      const totalSecs = Math.floor(seconds);
-      const mins = Math.floor(totalSecs / 60);
-      const secs = totalSecs % 60;
-      return `[${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}]`;
-    };
-
-    const fullTranscript = transcripts
-      .map(t => `${formatTime(t.audio_start_time)} ${t.text}`)
-      .join('\n');
-    navigator.clipboard.writeText(fullTranscript);
-
-    toast.success("Transcript copied to clipboard");
+    try {
+      await navigator.clipboard.writeText(formatTranscript(transcripts));
+      toast.success('Transcription copiée');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Impossible de copier la transcription.');
+    }
   }, [transcripts]);
 
   const handleGenerateSummary = useCallback(async () => {

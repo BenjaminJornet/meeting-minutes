@@ -2,22 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '@/lib/utils';
 import { Check, Edit2, User, Search, X } from 'lucide-react';
+import { normalizeTranscript, formatElapsedTime } from '@/lib/transcript-format';
 import { SPEAKER_COLORS, buildSpeakerColorMap } from '@/lib/speaker-colors';
 
-interface Word {
-  word: string;
-  start: number;
-  end: number;
-  probability: number;
-}
-
-interface Segment {
-  text: string;
-  speaker: string | null;
-  start: number;
-  end: number;
-  words: Word[];
-}
+type Segment = ReturnType<typeof normalizeTranscript>[number];
 
 interface EnhancedTranscriptViewProps {
   content: string;
@@ -73,30 +61,17 @@ export function EnhancedTranscriptView({ content, meetingFolderPath, onTranscrip
   useEffect(() => {
     try {
       if (!content) return;
-      // Handle case where content might be already an object or a string
-      const parsed = typeof content === 'string' ? JSON.parse(content) : content;
-      let parsedSegments: Segment[] = [];
-      // Ensure it's an array
-      if (Array.isArray(parsed)) {
-        parsedSegments = parsed;
-      } else if (parsed.segments && Array.isArray(parsed.segments)) {
-         // Handle case where it's wrapped in { segments: [...] }
-         parsedSegments = parsed.segments;
-      } else {
-        // Fallback for simple text or unexpected format
-        console.warn("Unexpected transcript format", parsed);
-        setError("Invalid transcript format");
-        return;
-      }
-      
+      const parsedSegments = normalizeTranscript(content);
+      setError(null);
       setSegments(parsedSegments);
       
       // Build speaker color map based on order of appearance
-      const speakerNames = parsedSegments.map(s => s.speaker || 'Unknown Speaker');
+      const speakerNames = parsedSegments.map(s => s.speaker || 'Intervenant inconnu');
       setSpeakerColorMap(buildSpeakerColorMap(speakerNames));
     } catch (e) {
       console.error("Failed to parse enhanced transcript JSON", e);
-      setError("Failed to parse transcript data");
+      setSegments([]);
+      setError("Format de transcription invalide.");
     }
   }, [content]);
 
@@ -149,10 +124,7 @@ export function EnhancedTranscriptView({ content, meetingFolderPath, onTranscrip
   if (error) {
     return (
       <div className="p-4 text-red-500 text-sm">
-        <p>Error displaying enhanced transcript.</p>
-        <pre className="mt-2 text-xs bg-gray-100 p-2 rounded overflow-auto max-h-40">
-          {content}
-        </pre>
+        <p role="alert">{error}</p>
       </div>
     );
   }
@@ -202,7 +174,7 @@ export function EnhancedTranscriptView({ content, meetingFolderPath, onTranscrip
         .map(({ segment, originalIndex }) => (
         <div key={originalIndex} className="flex gap-3 group">
           <div className="w-12 pt-1 text-xs text-gray-400 font-mono shrink-0 text-right">
-            {formatTime(segment.start)}
+            {formatElapsedTime(segment.start)}
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
@@ -231,7 +203,7 @@ export function EnhancedTranscriptView({ content, meetingFolderPath, onTranscrip
                 </div>
               ) : (
                 (() => {
-                  const speakerName = segment.speaker || 'Unknown Speaker';
+                  const speakerName = segment.speaker || 'Intervenant inconnu';
                   const colorIdx = speakerColorMap.get(speakerName) ?? 0;
                   const colors = SPEAKER_COLORS[colorIdx];
                   return (
@@ -258,11 +230,4 @@ export function EnhancedTranscriptView({ content, meetingFolderPath, onTranscrip
       ))}
     </div>
   );
-}
-
-function formatTime(seconds: number | undefined): string {
-  if (seconds === undefined) return "--:--";
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }

@@ -6,9 +6,9 @@ use crate::summary::processor::{extract_meeting_name_from_markdown, generate_mee
 use crate::ollama::metadata::ModelMetadataCache;
 use sqlx::SqlitePool;
 use std::time::{Duration, Instant};
-use tauri::AppHandle;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use once_cell::sync::Lazy;
+use super::checkpoints::{self, Checkpoints, SummaryOptions};
 
 // Global cache for model metadata (5 minute TTL)
 static METADATA_CACHE: Lazy<ModelMetadataCache> = Lazy::new(|| {
@@ -25,7 +25,6 @@ impl SummaryService {
     /// the main thread. It updates the database with progress and results.
     ///
     /// # Arguments
-    /// * `_app` - Tauri app handle (for future use)
     /// * `pool` - SQLx connection pool
     /// * `meeting_id` - Unique identifier for the meeting
     /// * `text` - Full transcript text
@@ -33,8 +32,7 @@ impl SummaryService {
     /// * `model_name` - Specific model (e.g., "gpt-4", "llama3.2:latest")
     /// * `custom_prompt` - Optional user-provided context
     /// * `template_id` - Template identifier (e.g., "daily_standup", "standard_meeting")
-    pub async fn process_transcript_background<R: tauri::Runtime>(
-        _app: AppHandle<R>,
+    pub async fn process_transcript_background(
         pool: SqlitePool,
         meeting_id: String,
         text: String,
@@ -42,6 +40,7 @@ impl SummaryService {
         model_name: String,
         custom_prompt: String,
         template_id: String,
+        requested_options: Option<SummaryOptions>,
     ) {
         let start_time = Instant::now();
         info!(
@@ -90,45 +89,41 @@ impl SummaryService {
             None
         };
 
-        // Dynamically fetch context size for Ollama models
-        let token_threshold = if provider == LLMProvider::Ollama {
-            match METADATA_CACHE.get_or_fetch(&model_name, ollama_endpoint.as_deref()).await {
-                Ok(metadata) => {
-                    // Reserve 300 tokens for prompt overhead
-                    let optimal = metadata.context_size.saturating_sub(300);
-                    info!(
-                        "✓ Using dynamic context for {}: {} tokens (chunk size: {})",
-                        model_name, metadata.context_size, optimal
-                    );
-                    optimal
-                }
-                Err(e) => {
-                    warn!(
-                        "⚠️ Failed to fetch context for {}: {}. Using default 4000",
-                        model_name, e
-                    );
-                    4000  // Fallback to safe default
-                }
+        let endpoint = checkpoints::endpoint_key(ollama_endpoint.as_deref());
+        let mut options = match requested_options {
+            Some(options) => options,
+            None => match checkpoints::load_options(&pool, &endpoint, &model_provider, &model_name).await {
+                Ok(options) => options,
+                Err(error) => { Self::update_process_failed(&pool, &meeting_id, &error).await; return; }
             }
-        } else {
-            // Cloud providers (OpenAI, Claude, Groq) handle large contexts automatically
-            100000  // Effectively unlimited for single-pass processing
         };
-
-        // Generate summary
-        let client = reqwest::Client::new();
-        let result = generate_meeting_summary(
-            &client,
-            &provider,
-            &model_name,
-            &api_key,
-            &text,
-            &custom_prompt,
-            &template_id,
-            token_threshold,
-            ollama_endpoint.as_deref(),
-        )
-        .await;
+        if provider == LLMProvider::Ollama {
+            if let Ok(metadata) = METADATA_CACHE.get_or_fetch(&model_name, ollama_endpoint.as_deref()).await {
+                options.context_tokens = options.context_tokens.min(metadata.context_size);
+                options.output_tokens = options.output_tokens.min(options.context_tokens / 4);
+            }
+        }
+        let template_fingerprint = match crate::summary::templates::get_template(&template_id) {
+            Ok(template) => format!("{}\n{}",template.to_markdown_structure(),template.to_section_instructions()),
+            Err(error) => { Self::update_process_failed(&pool,&meeting_id,&format!("template_invalid: {error}")).await; return; }
+        };
+        let run_key = checkpoints::hash(&serde_json::json!({
+            "pipeline_version": 2, "meeting":meeting_id, "text":text, "context":custom_prompt,
+            "template":template_fingerprint, "model":model_name, "provider":model_provider,
+            "endpoint":endpoint, "options":options, "language":std::env::var("MEETILY_LANGUAGE").unwrap_or_else(|_| "en".into()),
+        }).to_string());
+        let checkpoints = Checkpoints { pool: pool.clone(), meeting_id: meeting_id.clone(), run_key };
+        if let Err(error) = sqlx::query("UPDATE summary_processes SET status='processing' WHERE meeting_id=?")
+            .bind(&meeting_id).execute(&pool).await {
+            Self::update_process_failed(&pool,&meeting_id,&error.to_string()).await; return;
+        }
+        let client = match reqwest::Client::builder().connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(1200)).build() {
+                Ok(client) => client,
+                Err(error) => { Self::update_process_failed(&pool,&meeting_id,&error.to_string()).await; return; }
+            };
+        let result = generate_meeting_summary(&client, &provider, &model_name, &api_key,
+            &text, &custom_prompt, &template_id, &options, ollama_endpoint.as_deref(), &checkpoints).await;
 
         let duration = start_time.elapsed().as_secs_f64();
 
@@ -148,7 +143,7 @@ impl SummaryService {
                     "✓ Successfully processed {} chunks for meeting_id: {}. Duration: {:.2}s",
                     num_chunks, meeting_id, duration
                 );
-                info!("final markdown is {}", &final_markdown);
+
 
                 // Extract and update meeting name if present
                 if let Some(name) = extract_meeting_name_from_markdown(&final_markdown) {
@@ -182,6 +177,11 @@ impl SummaryService {
                     }
                 }
 
+                if final_markdown.trim().is_empty() {
+                    Self::update_process_failed(&pool, &meeting_id, "llm_response_empty: compte rendu sans contenu après nettoyage").await;
+                    return;
+                }
+
                 // Create result JSON with markdown only (summary_json will be added on first edit)
                 let result_json = serde_json::json!({
                     "markdown": final_markdown,
@@ -197,10 +197,7 @@ impl SummaryService {
                 )
                 .await
                 {
-                    error!(
-                        "⚠️ Failed to save completed process for {}: {}",
-                        meeting_id, e
-                    );
+                    Self::update_process_failed(&pool, &meeting_id, &format!("summary_save_failed: {e}")).await;
                 } else {
                     info!(
                         "💾 Summary saved successfully for meeting_id: {}",
@@ -221,6 +218,9 @@ impl SummaryService {
     /// * `meeting_id` - Meeting identifier
     /// * `error_msg` - Error message to store
     async fn update_process_failed(pool: &SqlitePool, meeting_id: &str, error_msg: &str) {
+        let code = error_msg.split(':').next().unwrap_or("summary_failed");
+        let _ = sqlx::query("UPDATE summary_progress SET error_code=? WHERE meeting_id=?")
+            .bind(code).bind(meeting_id).execute(pool).await;
         error!(
             "❌ Processing failed for meeting_id {}: {}",
             meeting_id, error_msg
