@@ -39,6 +39,13 @@ Dependencies are installed inside images. Audio is mounted read-only, while
 results and model caches use separate locations. Initial runs include downloads
 and do not measure warm startup. Run experiments outside active recording sessions.
 
+The adapters decode pyannote inputs with SoundFile to avoid requiring a matching
+TorchCodec binary. Whisper pins PyAV below 19 for faster-whisper compatibility.
+Nemotron 3 requires rotary attention support absent from the NeMo 3.0.0 wheel;
+its image installs the pinned NeMo Speech revision and matching Lhotse prerelease
+listed in the Dockerfile. Preserve package snapshots and model revisions with
+each result. Successful synthetic GPU smoke runs do not establish WER or DER.
+
 ```bash
 for engine in whisper qwen canary pyannote31 community nemotron-diarization; do
   docker build --build-arg ENGINE="$engine" -t "meetily-bench:$engine" . || break

@@ -151,11 +151,15 @@ class EnhancedTranscriptionManager:
                                     logger.info(f"✅ POST attempt {attempt}/{tries} to {url} succeeded (chunk {idx}) status={resp.status_code}")
                                     try:
                                         json_resp = resp.json()
-                                        logger.debug(f"🔍 Response JSON from {url} (chunk {idx}): {json_resp}")
-                                    except Exception:
+                                    except ValueError:
                                         logger.debug(f"🔍 Response text from {url} (chunk {idx}): {resp.text}")
-                                        # fallback to empty dict when response is not JSON parsable
+                                        # Keep the existing fallback for a non-JSON success response.
                                         json_resp = {}
+
+                                    if isinstance(json_resp, dict) and json_resp.get("error"):
+                                        raise RuntimeError(f"Whisper server returned an error: {json_resp['error']}")
+
+                                    logger.debug(f"🔍 Response JSON from {url} (chunk {idx}): {json_resp}")
                                     return json_resp
                                 except Exception as e:
                                     last_exc = e
@@ -180,6 +184,8 @@ class EnhancedTranscriptionManager:
                             if not enh_healthy:
                                 logger.warning("⚠️ Enhanced ASR health check did not succeed before sending chunk; skipping direct post to enhanced-asr and using whisper-server fallback to avoid hangs (waited 10 attempts)")
 
+                            # Initialize per chunk so failures cannot reuse a previous chunk's result.
+                            result = None
                             # If enhanced-asr appears healthy, try it first; otherwise skip to whisper fallback
                             if enh_healthy:
                                 try:
@@ -251,9 +257,24 @@ class EnhancedTranscriptionManager:
                                         logger.error(f"❌ All endpoints failed for chunk {idx}: {last_exc}")
                                         # Re-raise to mark job as failed
                                         raise last_exc
+                        # Normalize whisper.cpp's text-only response into one timed segment.
+                        # The fallback server commonly returns {"text": "..."} rather than
+                        # the enhanced service's {"segments": [...]} shape.
+                        response_segments = result.get("segments", [])
+                        if not response_segments:
+                            response_text = result.get("text") if isinstance(result, dict) else None
+                            if isinstance(response_text, str) and response_text.strip():
+                                response_segments = [{
+                                    "start": 0.0,
+                                    "end": float(chunk.duration_seconds),
+                                    "text": response_text,
+                                }]
+                            else:
+                                raise RuntimeError("ASR response contained no transcript text or segments")
+
                         # Process segments
                         offset_sec = offset_ms / 1000.0
-                        for seg in result.get("segments", []):
+                        for seg in response_segments:
                             seg["start"] += offset_sec
                             seg["end"] += offset_sec
                             # Adjust word timestamps if present

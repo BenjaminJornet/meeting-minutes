@@ -18,6 +18,7 @@ import { useMeetingOperations } from '@/hooks/meeting-details/useMeetingOperatio
 export default function PageContent({
   meeting,
   summaryData,
+  initialSummaryError = null,
   shouldAutoGenerate = false,
   isWaitingForEnhanced = false,
   retranscriptionProgress = null,
@@ -26,6 +27,7 @@ export default function PageContent({
 }: {
   meeting: any;
   summaryData: Summary | null;
+  initialSummaryError?: string | null;
   shouldAutoGenerate?: boolean;
   isWaitingForEnhanced?: boolean;
   retranscriptionProgress?: number | null;
@@ -136,7 +138,7 @@ export default function PageContent({
           onCopySummary={copyOperations.handleCopySummary}
           onOpenFolder={meetingOperations.handleOpenMeetingFolder}
           aiSummary={meetingData.aiSummary}
-          summaryStatus={summaryGeneration.summaryStatus}
+          summaryStatus={summaryGeneration.summaryStatus === 'idle' && initialSummaryError ? 'error' : summaryGeneration.summaryStatus}
           transcripts={meetingData.transcripts}
           modelConfig={modelConfig.modelConfig}
           setModelConfig={modelConfig.setModelConfig}
@@ -147,7 +149,7 @@ export default function PageContent({
           onSaveSummary={meetingData.handleSaveSummary}
           onSummaryChange={meetingData.handleSummaryChange}
           onDirtyChange={meetingData.setIsSummaryDirty}
-          summaryError={summaryGeneration.summaryError}
+          summaryError={summaryGeneration.summaryError || (summaryGeneration.summaryStatus === 'idle' ? initialSummaryError : null)}
           onRegenerateSummary={summaryGeneration.handleRegenerateSummary}
           getSummaryStatusMessage={summaryGeneration.getSummaryStatusMessage}
           availableTemplates={templates.availableTemplates}

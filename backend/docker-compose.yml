@@ -168,7 +168,9 @@ services:
       - NUMEXPR_NUM_THREADS=1
       - TOKENIZERS_PARALLELISM=false
     volumes:
-      - ./data/cache:/app/cache
+      # Named storage survives checkout replacement and is created by Docker
+      # before the service starts. Keep model caches outside the repository.
+      - enhanced_asr_cache:/app/cache
     deploy:
       resources:
         reservations:
@@ -400,6 +402,9 @@ volumes:
     driver: local
   meeting_app_logs:
     driver: local
+  enhanced_asr_cache:
+    external: true
+    name: meeting-minutes_enhanced_asr_cache
 
 # Networks
 networks:

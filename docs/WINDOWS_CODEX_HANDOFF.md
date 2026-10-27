@@ -236,6 +236,12 @@ try {
 Use `build --features cuda --config ... --bundles nsis` for the optional native
 CUDA build. `--features cuda` is a Tauri CLI option; do not blindly copy legacy
 scripts that pass it after an extra `--`. Use `dev --config ...` for development.
+With CUDA Toolkit 13, the pinned whisper.cpp sources require
+`$env:NVCC_PREPEND_FLAGS = '--std=c++17'` before building: current CUB headers
+reject the older default C++ dialect. Keep the toolkit's x64 DLL directory in
+the launched process's `PATH`; the CUDA executable depends on `cublas64_13.dll`
+and its matching `cublasLt64_13.dll`. The validation NSIS bundle does not include
+these toolkit libraries.
 Record which artifact uses which features and calculate its SHA-256 with
 `Get-FileHash`. A fresh application Cargo lockfile may need to be resolved because
 the repository ignores it; preserve the verification crate's tracked lockfile.

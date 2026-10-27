@@ -87,7 +87,11 @@ def infer(engine, name, audio):
         rows = engine.diarize(audio=[str(audio)], batch_size=1)[0]
         return {"speakers": [{"start": float(s), "end": float(e), "speaker": label}
                              for s, e, label in (row.split() for row in rows)]}
-    output = engine(str(audio))
+    # Decode consistently without requiring a torchcodec build matching PyTorch.
+    import soundfile
+    import torch
+    waveform, sample_rate = soundfile.read(str(audio), dtype="float32", always_2d=True)
+    output = engine({"waveform": torch.from_numpy(waveform.T.copy()), "sample_rate": sample_rate})
     annotation = output if name == "pyannote31" else output.speaker_diarization
     rows = [{"start": turn.start, "end": turn.end, "speaker": label}
             for turn, _, label in annotation.itertracks(yield_label=True)]

@@ -34,6 +34,13 @@ impl Default for RecordingPreferences {
 
 /// Get the default recordings folder based on platform
 pub fn get_default_recordings_folder() -> PathBuf {
+    // Keep validation and other isolated sessions outside the shared media folder.
+    if let Some(directory) = std::env::var_os("MEETILY_RECORDINGS_DIR") {
+        let directory = PathBuf::from(directory);
+        assert!(directory.is_absolute(), "MEETILY_RECORDINGS_DIR must be an absolute path");
+        return directory;
+    }
+
     #[cfg(target_os = "windows")]
     {
         // Windows: %USERPROFILE%\Music\meetily-recordings

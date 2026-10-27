@@ -24,6 +24,15 @@ Restoration verifies downloaded content before publishing `audio.mp4`.
 
 System backups and manually exported audio are outside application-managed cleanup.
 
+For isolated validation, set `MEETILY_RECORDINGS_DIR` to an absolute directory
+before starting the application. Recording, import, archive inventory, and startup
+audio recovery use this directory instead of the shared media folder. An invalid
+relative override stops startup rather than falling back to existing recordings.
+
+Private runtime configuration may be supplied through process environment variables
+or the existing external `.env` lookup. Installer resources contain templates only;
+private `.env` files must remain outside the installation package.
+
 ## Copying a conversation
 
 The copy action includes the entire selected transcript version, regardless of

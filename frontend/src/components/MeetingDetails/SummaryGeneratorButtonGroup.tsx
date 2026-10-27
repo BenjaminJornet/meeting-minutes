@@ -140,6 +140,7 @@ export function SummaryGeneratorButtonGroup({
           </Button>
         </DialogTrigger>
         <DialogContent
+          className="max-h-[85vh] overflow-y-auto"
           aria-describedby={undefined}
         >
           <VisuallyHidden>

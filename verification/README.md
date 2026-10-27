@@ -19,10 +19,11 @@ docker run --rm --cpus 2 --memory 4g \
   -v "$PWD:/src:ro" -v meetily-verify-rust:/work \
   -v meetily-verify-cargo:/usr/local/cargo -w /work meetily-verification:core sh -c '
     mkdir -p verification frontend/src-tauri
-    cp -R /src/verification/. verification/
+    cp /src/verification/Cargo.toml /src/verification/Cargo.lock /src/verification/lib.rs /src/verification/integration.rs verification/
     cp -R /src/frontend/src-tauri/src /src/frontend/src-tauri/templates /src/frontend/src-tauri/migrations frontend/src-tauri/
-    cargo test --manifest-path verification/Cargo.toml --locked --lib --no-run &&
-    test_binary=$(find verification/target/debug/deps -maxdepth 1 -name "meetily_verification-*" -type f -executable | head -1) &&
+    cargo test --manifest-path verification/Cargo.toml --locked --lib --no-run --message-format=json > core-build.json &&
+    test_binary=$(sed -n '\''s/.*"executable":"\([^"]*\)".*/\1/p'\'' core-build.json | tail -1) &&
+    test -n "$test_binary" &&
     runuser -u nobody -- "$test_binary" --test-threads=2
   '
 ```
@@ -32,6 +33,10 @@ root would bypass. Webhooks and Ollama are local HTTP fixtures; core tests never
 send real meeting audio. Long-transcript scenarios cover more than 100,000
 characters and recursive consolidation. Simulated model responses verify the
 mechanism, not semantic quality.
+
+Copy only verification sources: `verification/local/` can contain large private
+Windows build artifacts. Select the executable reported by Cargo rather than
+the first matching file, which can be stale in a reused build volume.
 
 The `default_thirty_thousand_character_budget_covers_a_long_meeting` scenario
 checks that all synthetic speaker turns reach the simulated Ollama requests,
@@ -128,7 +133,7 @@ docker run --rm --cpus 2 --memory 4g \
   -v "$PWD:/src:ro" -v meetily-verify-rust:/work \
   -v meetily-verify-cargo:/usr/local/cargo -w /work meetily-verification:core sh -c '
     mkdir -p verification frontend/src-tauri
-    cp -R /src/verification/. verification/
+    cp /src/verification/Cargo.toml /src/verification/Cargo.lock /src/verification/lib.rs /src/verification/integration.rs verification/
     cp -R /src/frontend/src-tauri/src /src/frontend/src-tauri/templates /src/frontend/src-tauri/migrations frontend/src-tauri/
     cargo test --manifest-path verification/Cargo.toml --locked --lib \
       integration::real_ollama_long_summary_smoke -- --ignored --exact --nocapture

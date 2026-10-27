@@ -80,6 +80,13 @@ BATCH_SIZE = int(os.getenv("BATCH_SIZE", "16"))
 HF_TOKEN = os.getenv("HF_TOKEN", "").strip() or None
 VAD_METHOD = os.getenv("WHISPERX_VAD_METHOD", "silero")
 
+# The cache paths may be bind-mounted or backed by a named Docker volume.
+# Create them explicitly so a fresh checkout cannot leave a healthy HTTP
+# endpoint with a missing model-cache directory at inference time.
+for _cache_path in (os.getenv("HF_HOME", "/app/cache/huggingface"),
+                    os.getenv("TORCH_HOME", "/app/cache/torch")):
+    os.makedirs(_cache_path, exist_ok=True)
+
 PYANNOTE_DIAR_MODEL = "pyannote/speaker-diarization-3.1"
 
 # -----------------------------
@@ -125,8 +132,6 @@ def get_diar_pipeline():
         return None
 
     logger.info(f"🚀 Loading pyannote Pipeline '{PYANNOTE_DIAR_MODEL}' ...")
-    # HF examples accept token/use_auth_token; token works on recent HF clients
-    # pyannote.audio 3.x uses use_auth_token
     diar_pipeline = Pipeline.from_pretrained(PYANNOTE_DIAR_MODEL, use_auth_token=HF_TOKEN)
 
     # Try to move to desired device; if that fails (e.g., cuDNN mismatch), explicitly fallback to CPU
@@ -534,7 +539,12 @@ def _do_transcribe_impl(tmp_path: str, language: Optional[str], diarize: bool):
             logger.info("🗣️ Diarizing...")
             _log_gpu_stats("before diarization")
             t_d0 = time.time()
-            diar = pipeline(tmp_path)
+            # Pass decoded audio directly so diarization accepts MP4 uploads as
+            # well as WAV files. WhisperX has already decoded this to mono 16 kHz.
+            diar = pipeline({
+                "waveform": torch.from_numpy(audio).unsqueeze(0),
+                "sample_rate": 16000,
+            })
             t_d1 = time.time()
             _log_gpu_stats("after diarization")
             logger.info(f"✅ Diarization complete: duration={t_d1-t_d0:.2f}s")

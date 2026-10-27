@@ -29,6 +29,8 @@ function MeetingDetailsContent() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [shouldAutoGenerate, setShouldAutoGenerate] = useState<boolean>(false);
   const [hasCheckedAutoGen, setHasCheckedAutoGen] = useState<boolean>(false);
+  const [loadedSummaryStatus, setLoadedSummaryStatus] = useState<string | null>(null);
+  const [initialSummaryError, setInitialSummaryError] = useState<string | null>(null);
   const [isWaitingForEnhanced, setIsWaitingForEnhanced] = useState<boolean>(false);
   const [retranscriptionProgress, setRetranscriptionProgress] = useState<number | null>(null);
 
@@ -157,6 +159,10 @@ function MeetingDetailsContent() {
   useEffect(() => {
     setMeetingDetails(null);
     setMeetingSummary(null);
+    setLoadedSummaryStatus(null);
+    setInitialSummaryError(null);
+    setHasCheckedAutoGen(false);
+    setShouldAutoGenerate(false);
     setError(null);
     setIsLoading(true);
   }, [meetingId]);
@@ -185,6 +191,8 @@ function MeetingDetailsContent() {
           meetingId: meetingId,
         }) as any;
 
+        setLoadedSummaryStatus(summary.status);
+        setInitialSummaryError(summary.error || null);
         console.log('🔍 FETCH SUMMARY: Raw response:', summary);
 
         // Check if the summary request failed with 404 or error status, or if no summary exists yet (idle)
@@ -276,6 +284,8 @@ function MeetingDetailsContent() {
         setMeetingSummary(formattedSummary);
       } catch (error) {
         console.error('❌ FETCH SUMMARY: Error fetching meeting summary:', error);
+        setLoadedSummaryStatus('error');
+        setInitialSummaryError(String(error));
         // Don't set error state for summary fetch failure, set to null to show generate button
         setMeetingSummary(null);
       }
@@ -304,6 +314,8 @@ function MeetingDetailsContent() {
       // 3. Meeting has transcripts
       // 4. Haven't checked yet
       if (
+        !isLoading &&
+        loadedSummaryStatus === 'idle' &&
         meetingDetails &&
         meetingSummary === null &&
         meetingDetails.transcripts &&
@@ -336,7 +348,7 @@ function MeetingDetailsContent() {
     };
 
     checkAutoGen();
-  }, [meetingDetails, meetingSummary, hasCheckedAutoGen, setupAutoGeneration, isWaitingForEnhanced]);
+  }, [isLoading, loadedSummaryStatus, meetingDetails, meetingSummary, hasCheckedAutoGen, setupAutoGeneration, isWaitingForEnhanced]);
 
   if (error) {
     return (
@@ -363,6 +375,7 @@ function MeetingDetailsContent() {
   return <PageContent
     meeting={meetingDetails}
     summaryData={meetingSummary}
+    initialSummaryError={initialSummaryError}
     shouldAutoGenerate={shouldAutoGenerate}
     isWaitingForEnhanced={isWaitingForEnhanced}
     retranscriptionProgress={retranscriptionProgress}
